@@ -40,9 +40,15 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-// run executes the CLI and returns a process exit code. It is kept separate from
-// main so it can be exercised directly by tests.
+// run executes the CLI with the real journal collector and returns a process
+// exit code.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	return runWith(args, stdin, stdout, stderr, collector.New(collector.NewExecRunner()))
+}
+
+// runWith executes the CLI with an injected collector. The seam lets tests
+// exercise the whole command surface in-process, without journalctl.
+func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
 	if len(args) == 0 {
 		usage(stderr)
 		return 2
@@ -50,7 +56,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	switch args[0] {
 	case "collect":
-		return cmdCollect(args[1:], stdin, stdout, stderr)
+		return cmdCollect(args[1:], stdin, stdout, stderr, c)
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "bootlore %s\n", version)
 		return 0
@@ -88,7 +94,7 @@ Examples:
 `)
 }
 
-func cmdCollect(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func cmdCollect(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
 	fs := flag.NewFlagSet("collect", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	input := fs.String("input", "", "read journal JSON (journalctl -o json) from this file")
@@ -98,7 +104,7 @@ func cmdCollect(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	events, err := collectEvents(*input, *fromJournal, *boot, stdin)
+	events, err := collectEvents(*input, *fromJournal, *boot, stdin, c)
 	if err != nil {
 		fmt.Fprintf(stderr, "bootlore: %v\n", err)
 		if errors.Is(err, collector.ErrBackendUnavailable) {
@@ -117,7 +123,7 @@ func cmdCollect(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 // collectEvents selects the event source and returns the normalized events.
 // Precedence: --input file, then piped stdin, then the system journal.
-func collectEvents(input string, fromJournal bool, boot string, stdin io.Reader) ([]event.Event, error) {
+func collectEvents(input string, fromJournal bool, boot string, stdin io.Reader, c *collector.Collector) ([]event.Event, error) {
 	switch {
 	case input != "":
 		f, err := os.Open(input)
@@ -128,7 +134,6 @@ func collectEvents(input string, fromJournal bool, boot string, stdin io.Reader)
 		return journal.ParseWithOrigin(f, event.OriginHistorical)
 
 	case fromJournal || !stdinIsPiped(stdin):
-		c := collector.New(collector.NewExecRunner())
 		return c.Collect(context.Background(), collector.Options{Boot: boot})
 
 	default:

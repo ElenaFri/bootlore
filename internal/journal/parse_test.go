@@ -85,6 +85,56 @@ func TestParseMessageAsByteArray(t *testing.T) {
 	}
 }
 
+// journald encodes repeated fields as an array of strings; they are joined.
+func TestParseMessageAsStringArray(t *testing.T) {
+	in := `{"MESSAGE":["first part","second part"]}`
+	events, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if len(events) != 1 || events[0].Message != "first part\nsecond part" {
+		t.Fatalf("Message = %q, want two joined parts", events[0].Message)
+	}
+}
+
+// A MESSAGE that cannot be decoded (e.g. a bare number) is a structural
+// problem: parsing must fail rather than silently drop the message.
+func TestParseUndecodableMessageReturnsError(t *testing.T) {
+	in := `{"MESSAGE":123}`
+	if _, err := Parse(strings.NewReader(in)); err == nil {
+		t.Fatal("Parse should return an error for an undecodable MESSAGE")
+	}
+}
+
+// Non-promoted fields with undecodable values are skipped without failing the
+// whole entry; the rest of the event is preserved.
+func TestParseSkipsUndecodableExtraField(t *testing.T) {
+	in := `{"MESSAGE":"ok","_SOURCE_REALTIME_TIMESTAMP":123}`
+	events, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if len(events) != 1 || events[0].Message != "ok" {
+		t.Fatalf("unexpected events: %+v", events)
+	}
+	if _, present := events[0].Fields["_SOURCE_REALTIME_TIMESTAMP"]; present {
+		t.Error("undecodable field should be absent from Fields")
+	}
+}
+
+// Promoted fields with undecodable values degrade to their zero value instead
+// of failing the entry.
+func TestParseUndecodablePromotedFieldDegrades(t *testing.T) {
+	in := `{"MESSAGE":"ok","_PID":123}`
+	events, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if events[0].PID != 0 {
+		t.Errorf("PID = %d, want 0 (undecodable _PID degrades)", events[0].PID)
+	}
+}
+
 func TestParsePrefersSyslogIdentifierOverComm(t *testing.T) {
 	in := `{"MESSAGE":"x","SYSLOG_IDENTIFIER":"kernel","_COMM":"swapper/0"}`
 	events, _ := Parse(strings.NewReader(in))

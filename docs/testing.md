@@ -93,13 +93,20 @@ sensitive before committing (hostnames, IPs, user names).
 - Use `t.Helper()` in assertion helpers and `t.Cleanup()` for teardown.
 - Keep source data immutable: when testing interpretation, assert the original
   `Message` is unchanged.
-- Unit tests must not touch the file system, the network or external processes.
+- Unit tests must not spawn external processes or touch the network; prefer
+  in-memory inputs (use `t.TempDir` for the rare file-based case, e.g. `--input`).
 
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs each tier as its own job (lint, unit,
 integration, system) plus a build/smoke-test job, on every push to `main` and
 every pull request. The Go version is pinned via `go-version-file: go.mod`.
+
+A dedicated **coverage** job runs the unit + integration tiers with
+`-coverpkg=./...`, which counts cross-package coverage: lines exercised by the
+integration tier (e.g. the journalctl exec runner) therefore appear in the
+profile that Codecov evaluates. The system tier runs the binary as a separate
+process and is verified by its own job instead.
 
 `make ci` reproduces the pipeline locally:
 

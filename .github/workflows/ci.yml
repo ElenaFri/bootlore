@@ -43,8 +43,23 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Run unit tests (race + coverage)
-        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Run unit tests (race)
+        run: go test -race ./...
+
+  coverage:
+    name: Coverage (unit + integration)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # -coverpkg counts cross-package coverage, so lines exercised by the
+      # integration tier (e.g. the journalctl exec runner) appear in the
+      # profile that Codecov evaluates.
+      - name: Run unit + integration tests (race + coverage)
+        run: go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out -tags=integration ./...
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -n 1
       - name: Upload coverage to Codecov

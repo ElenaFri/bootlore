@@ -24,6 +24,12 @@ func TestPriorityString(t *testing.T) {
 	}
 }
 
+func TestPriorityStringInvalidFallsBackToUnknown(t *testing.T) {
+	if got := Priority(42).String(); got != "unknown" {
+		t.Errorf("Priority(42).String() = %q, want %q", got, "unknown")
+	}
+}
+
 // ParsePriority maps the journal PRIORITY field ("0".."7") onto the model.
 func TestParsePriority(t *testing.T) {
 	valid := map[string]Priority{

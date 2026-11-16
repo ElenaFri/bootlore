@@ -62,8 +62,8 @@ test-system: ## Run end-to-end system tests
 test-all: ## Run unit + integration + system tests in one pass
 	$(Q)$(GO) test -race -tags=integration,system $(PKG)
 
-cover: ## Unit coverage profile (coverage.out) + total summary
-	$(Q)$(GO) test -race -covermode=atomic -coverprofile=coverage.out $(PKG)
+cover: ## Unit+integration coverage profile (coverage.out) + total summary
+	$(Q)$(GO) test -race -tags=integration -covermode=atomic -coverpkg=$(PKG) -coverprofile=coverage.out $(PKG)
 	$(Q)$(GO) tool cover -func=coverage.out | tail -n 1
 
 clean: ## Remove build and coverage artifacts

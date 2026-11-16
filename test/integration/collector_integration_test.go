@@ -76,3 +76,19 @@ func TestExecRunnerBackendFailure(t *testing.T) {
 		t.Errorf("error %q should surface the backend stderr", got)
 	}
 }
+
+// A failing journalctl that prints nothing on stderr must still produce a
+// clear error, falling back to the exit status.
+func TestExecRunnerBackendFailureSilent(t *testing.T) {
+	dir := writeStubJournalctl(t, "exit 7\n")
+	t.Setenv("PATH", dir)
+
+	c := collector.New(collector.NewExecRunner())
+	_, err := c.Collect(context.Background(), collector.Options{})
+	if !errors.Is(err, collector.ErrBackendUnavailable) {
+		t.Fatalf("error = %v, want ErrBackendUnavailable", err)
+	}
+	if !strings.Contains(err.Error(), "exit status 7") {
+		t.Errorf("error should include the exit status: %q", err.Error())
+	}
+}
