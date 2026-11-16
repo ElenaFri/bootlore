@@ -2,16 +2,16 @@
 
 ## Phase 1 — Core collector
 
-- [ ] Define the internal event data model
+- [x] Define the internal event data model
 - [ ] Collect boot events from `journald`
 - [ ] Support historical log replay and real-time event streaming
-- [ ] Preserve timestamps, priorities, sources and original messages
+- [x] Preserve timestamps, priorities, sources and original messages
 - [ ] Handle missing permissions and unavailable log sources gracefully
 - [ ] Avoid duplicate or missing events during the transition from replay to live monitoring
 
 ## Phase 2 — Event processing
 
-- [ ] Parse and normalize collected events
+- [x] Parse and normalize collected events
 - [ ] Classify events by subsystem (kernel, hardware, storage, network, systemd, security, desktop)
 - [ ] Distinguish raw log severity from actual operational significance
 - [ ] Identify warnings, failures and potentially relevant events
