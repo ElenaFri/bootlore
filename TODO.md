@@ -13,8 +13,8 @@
 
 - [x] Parse and normalize collected events
 - [x] Classify events by subsystem (kernel, hardware, storage, network, systemd, security, desktop)
-- [ ] Distinguish raw log severity from actual operational significance
-- [ ] Identify warnings, failures and potentially relevant events
+- [x] Distinguish raw log severity from actual operational significance
+- [x] Identify warnings, failures and potentially relevant events
 - [ ] Add contextual explanations for common boot messages
 - [ ] Provide different levels of explanation: overview, technical and in-depth
 

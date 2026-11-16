@@ -120,6 +120,46 @@ const (
 	CategoryOther        Category = "OTHER"
 )
 
+// Significance expresses the operational importance of an event as judged by
+// BootLore, deliberately kept separate from the journal Priority.
+//
+// Priority is what the system reported (source data); Significance is BootLore's
+// interpretation. A warning priority does not necessarily mean something failed,
+// and a failure may be reported at a low priority (architecture §4.4).
+type Significance int8
+
+const (
+	// SignificanceUnknown is the zero value: the event has not been assessed.
+	SignificanceUnknown Significance = iota
+	// SignificanceNormal is routine, expected activity.
+	SignificanceNormal
+	// SignificanceWarning is something off that is not (yet) a failure.
+	SignificanceWarning
+	// SignificanceFailure is an operation that did not succeed.
+	SignificanceFailure
+)
+
+var significanceNames = map[Significance]string{
+	SignificanceUnknown: "unknown",
+	SignificanceNormal:  "normal",
+	SignificanceWarning: "warning",
+	SignificanceFailure: "failure",
+}
+
+// String returns a lower-case name for the significance level.
+func (s Significance) String() string {
+	if name, ok := significanceNames[s]; ok {
+		return name
+	}
+	return "unknown"
+}
+
+// IsNoteworthy reports whether the event warrants attention: a warning or a
+// failure.
+func (s Significance) IsNoteworthy() bool {
+	return s == SignificanceWarning || s == SignificanceFailure
+}
+
 // Origin records how BootLore observed an event: replayed from the journal
 // (historical) or followed as it arrived (live).
 type Origin string
@@ -167,6 +207,9 @@ type Event struct {
 
 	// Category is the subsystem classification, or CategoryUnclassified.
 	Category Category
+	// Significance is BootLore's assessment of operational importance,
+	// independent of Priority. The zero value is SignificanceUnknown.
+	Significance Significance
 	// Human is a concise, faithful reformulation of the event, or empty.
 	Human string
 	// Explanation is additional educational/technical context, or empty.

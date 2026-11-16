@@ -140,6 +140,45 @@ func TestZeroValueEventIsDisplayable(t *testing.T) {
 	}
 }
 
+func TestSignificanceString(t *testing.T) {
+	cases := map[Significance]string{
+		SignificanceUnknown: "unknown",
+		SignificanceNormal:  "normal",
+		SignificanceWarning: "warning",
+		SignificanceFailure: "failure",
+	}
+	for s, want := range cases {
+		if got := s.String(); got != want {
+			t.Errorf("Significance(%d).String() = %q, want %q", int8(s), got, want)
+		}
+	}
+	if got := Significance(99).String(); got != "unknown" {
+		t.Errorf("Significance(99).String() = %q, want unknown", got)
+	}
+}
+
+func TestSignificanceIsNoteworthy(t *testing.T) {
+	for _, s := range []Significance{SignificanceUnknown, SignificanceNormal} {
+		if s.IsNoteworthy() {
+			t.Errorf("%s should not be noteworthy", s)
+		}
+	}
+	for _, s := range []Significance{SignificanceWarning, SignificanceFailure} {
+		if !s.IsNoteworthy() {
+			t.Errorf("%s should be noteworthy", s)
+		}
+	}
+}
+
+// Significance is interpretation: a zero-value event has not been assessed, and
+// it stays separate from Priority (source data).
+func TestZeroValueEventSignificanceUnknown(t *testing.T) {
+	var e Event
+	if e.Significance != SignificanceUnknown {
+		t.Errorf("zero Event Significance = %v, want unknown", e.Significance)
+	}
+}
+
 func mustAtoi(s string) int {
 	n := 0
 	for _, r := range s {
