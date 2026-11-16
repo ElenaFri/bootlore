@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/ElenaFri/bootlore/internal/collector"
+	"github.com/ElenaFri/bootlore/internal/event"
 )
 
 // FakeRunner is an in-memory collector.Runner. It records the arguments of every
@@ -112,6 +113,31 @@ func WriteStubJournalctl(t *testing.T, body string) string {
 		t.Fatalf("writing stub journalctl: %v", err)
 	}
 	return dir
+}
+
+// ExpectEvent is a lightweight expectation for a collected event. An empty
+// Origin means "do not check the origin".
+type ExpectEvent struct {
+	Message string
+	Origin  event.Origin
+}
+
+// AssertEvents checks that got matches the expected message (and, when set,
+// origin) sequence. It is the shared assertion used by the unit and integration
+// tiers so the Collect/Follow/Watch expectations are not copied between files.
+func AssertEvents(t *testing.T, got []event.Event, want []ExpectEvent) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("got %d events, want %d: %+v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i].Message != w.Message {
+			t.Errorf("events[%d].Message = %q, want %q", i, got[i].Message, w.Message)
+		}
+		if w.Origin != "" && got[i].Origin != w.Origin {
+			t.Errorf("events[%d].Origin = %q, want %q", i, got[i].Origin, w.Origin)
+		}
+	}
 }
 
 // StubReplayThenLive is a journalctl stub body that emits two historical entries

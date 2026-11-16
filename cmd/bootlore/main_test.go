@@ -32,6 +32,21 @@ func liveCLI(args []string, outputs ...string) (stdout, stderr string, code int)
 	return out.String(), errb.String(), code
 }
 
+// assertLines splits stdout into lines (ignoring a trailing newline) and checks
+// that each line contains the corresponding wanted substring.
+func assertLines(t *testing.T, stdout string, wantSubstrings ...string) {
+	t.Helper()
+	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+	if len(lines) != len(wantSubstrings) {
+		t.Fatalf("got %d lines, want %d:\n%s", len(lines), len(wantSubstrings), stdout)
+	}
+	for i, want := range wantSubstrings {
+		if !strings.Contains(lines[i], want) {
+			t.Errorf("line %d = %q, want to contain %q", i, lines[i], want)
+		}
+	}
+}
+
 func TestRunNoArgsShowsUsage(t *testing.T) {
 	stdout, stderr, code := runCLI(nil, strings.NewReader(""), &collectortest.FakeRunner{})
 	if code != 2 {
@@ -80,16 +95,9 @@ func TestCollectFromStdin(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
 	}
-	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("got %d lines, want 2:\n%s", len(lines), stdout)
-	}
-	if !strings.Contains(lines[0], "systemd[1]: Reached target Multi-User System.") {
-		t.Errorf("first line = %q", lines[0])
-	}
-	if !strings.Contains(lines[1], "[warning] systemd[1]: unit.service: Failed") {
-		t.Errorf("second line = %q", lines[1])
-	}
+	assertLines(t, stdout,
+		"systemd[1]: Reached target Multi-User System.",
+		"[warning] systemd[1]: unit.service: Failed")
 }
 
 func TestCollectFromFile(t *testing.T) {
@@ -186,16 +194,9 @@ func TestLiveReplaysThenFollows(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
 	}
-	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("got %d lines, want 2:\n%s", len(lines), stdout)
-	}
-	if !strings.Contains(lines[0], "Reached target Multi-User System.") {
-		t.Errorf("first line = %q", lines[0])
-	}
-	if !strings.Contains(lines[1], "Started Network Manager.") {
-		t.Errorf("second line = %q", lines[1])
-	}
+	assertLines(t, stdout,
+		"Reached target Multi-User System.",
+		"Started Network Manager.")
 }
 
 func TestLiveBackendErrorFails(t *testing.T) {

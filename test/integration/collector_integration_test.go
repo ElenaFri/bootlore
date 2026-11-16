@@ -25,15 +25,10 @@ func TestExecRunnerCollectsFromStubJournalctl(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect returned error: %v", err)
 	}
-	if len(events) != 2 {
-		t.Fatalf("got %d events, want 2", len(events))
-	}
-	if events[0].Message != "stub line 1" || events[1].Message != "stub line 2" {
-		t.Errorf("unexpected messages: %q, %q", events[0].Message, events[1].Message)
-	}
-	if events[0].Origin != event.OriginHistorical {
-		t.Errorf("Origin = %q, want historical", events[0].Origin)
-	}
+	collectortest.AssertEvents(t, events, []collectortest.ExpectEvent{
+		{Message: "stub line 1", Origin: event.OriginHistorical},
+		{Message: "stub line 2", Origin: event.OriginHistorical},
+	})
 	if events[1].Priority != event.PriorityWarning {
 		t.Errorf("second event Priority = %v, want warning", events[1].Priority)
 	}
@@ -141,17 +136,9 @@ func TestWatchSeamlessWithStubJournalctl(t *testing.T) {
 		t.Fatalf("Watch returned error: %v", err)
 	}
 
-	wantMessages := []string{"replayed 1", "replayed 2", "live event"}
-	wantOrigins := []event.Origin{event.OriginHistorical, event.OriginHistorical, event.OriginLive}
-	if len(got) != 3 {
-		t.Fatalf("got %d events, want 3: %+v", len(got), got)
-	}
-	for i := range wantMessages {
-		if got[i].Message != wantMessages[i] {
-			t.Errorf("got[%d].Message = %q, want %q", i, got[i].Message, wantMessages[i])
-		}
-		if got[i].Origin != wantOrigins[i] {
-			t.Errorf("got[%d].Origin = %q, want %q", i, got[i].Origin, wantOrigins[i])
-		}
-	}
+	collectortest.AssertEvents(t, got, []collectortest.ExpectEvent{
+		{Message: "replayed 1", Origin: event.OriginHistorical},
+		{Message: "replayed 2", Origin: event.OriginHistorical},
+		{Message: "live event", Origin: event.OriginLive},
+	})
 }

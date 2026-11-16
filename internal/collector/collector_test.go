@@ -38,17 +38,10 @@ func TestCollectParsesRunnerOutputAsHistorical(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect returned error: %v", err)
 	}
-	if len(events) != 2 {
-		t.Fatalf("got %d events, want 2", len(events))
-	}
-	if events[0].Message != "first" || events[1].Message != "second" {
-		t.Errorf("unexpected messages: %q, %q", events[0].Message, events[1].Message)
-	}
-	for i, e := range events {
-		if e.Origin != event.OriginHistorical {
-			t.Errorf("events[%d].Origin = %q, want historical", i, e.Origin)
-		}
-	}
+	collectortest.AssertEvents(t, events, []collectortest.ExpectEvent{
+		{Message: "first", Origin: event.OriginHistorical},
+		{Message: "second", Origin: event.OriginHistorical},
+	})
 	if !fr.Closed() {
 		t.Error("Collect should close the runner's reader")
 	}
@@ -173,19 +166,11 @@ func TestWatchSeamlessTransition(t *testing.T) {
 		t.Fatalf("Watch returned error: %v", err)
 	}
 
-	wantMessages := []string{"replayed 1", "replayed 2", "live 1"}
-	wantOrigins := []event.Origin{event.OriginHistorical, event.OriginHistorical, event.OriginLive}
-	if len(got) != 3 {
-		t.Fatalf("got %d events, want 3: %+v", len(got), got)
-	}
-	for i := range wantMessages {
-		if got[i].Message != wantMessages[i] {
-			t.Errorf("got[%d].Message = %q, want %q", i, got[i].Message, wantMessages[i])
-		}
-		if got[i].Origin != wantOrigins[i] {
-			t.Errorf("got[%d].Origin = %q, want %q", i, got[i].Origin, wantOrigins[i])
-		}
-	}
+	collectortest.AssertEvents(t, got, []collectortest.ExpectEvent{
+		{Message: "replayed 1", Origin: event.OriginHistorical},
+		{Message: "replayed 2", Origin: event.OriginHistorical},
+		{Message: "live 1", Origin: event.OriginLive},
+	})
 
 	if len(sr.GotArgs) != 2 {
 		t.Fatalf("runner called %d times, want 2", len(sr.GotArgs))
