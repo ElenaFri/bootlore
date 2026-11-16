@@ -23,10 +23,13 @@ BootLore is written in [Go](https://go.dev) (see `go.mod` for the required versi
 # Build the CLI
 make build
 
-# Read a boot journal and print the LOG view
+# Read the current boot straight from the system journal
+./bin/bootlore collect
+
+# ...or pipe journal data in
 journalctl -b -o json | ./bin/bootlore collect
 
-# ...or from a captured export
+# ...or replay a captured export
 ./bin/bootlore collect --input boot.json
 ```
 

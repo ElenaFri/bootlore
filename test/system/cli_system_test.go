@@ -175,3 +175,73 @@ func nonEmptyLines(s string) []string {
 	}
 	return out
 }
+
+// --- journald source (via a stub journalctl on PATH) ---
+
+// writeStubJournalctl creates an executable journalctl stub in a temp dir and
+// returns that directory, suitable for use as the only PATH entry.
+func writeStubJournalctl(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "journalctl"), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+		t.Fatalf("writing stub journalctl: %v", err)
+	}
+	return dir
+}
+
+// runBootloreEnv runs the binary with a custom environment (used to control PATH
+// so the stub journalctl is picked up instead of the real one).
+func runBootloreEnv(t *testing.T, env []string, stdin string, args ...string) result {
+	t.Helper()
+	cmd := exec.Command(binPath, args...)
+	cmd.Env = env
+	cmd.Stdin = strings.NewReader(stdin)
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	err := cmd.Run()
+	code := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if asExitError(err, &exitErr) {
+			code = exitErr.ExitCode()
+		} else {
+			t.Fatalf("running bootlore %v: %v", args, err)
+		}
+	}
+	return result{stdout: out.String(), stderr: errb.String(), code: code}
+}
+
+func TestCollectFromJournal(t *testing.T) {
+	dir := writeStubJournalctl(t, `printf '%s\n' '{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"Reached target Multi-User System."}'`)
+	res := runBootloreEnv(t, []string{"PATH=" + dir}, "", "collect", "--journal")
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "systemd[1]: Reached target Multi-User System.") {
+		t.Errorf("unexpected journald output:\n%s", res.stdout)
+	}
+}
+
+// A missing journalctl must fail gracefully with a helpful message, not crash.
+func TestCollectJournalBackendMissing(t *testing.T) {
+	res := runBootloreEnv(t, []string{"PATH=" + t.TempDir()}, "", "collect", "--journal")
+	if res.code != 1 {
+		t.Fatalf("exit code = %d, want 1 (stderr = %q)", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stderr, "journalctl") {
+		t.Errorf("stderr should mention journalctl: %q", res.stderr)
+	}
+}
+
+// A failing journalctl (e.g. permission denied) must surface the backend error.
+func TestCollectJournalBackendFailure(t *testing.T) {
+	dir := writeStubJournalctl(t, "echo 'Failed to add match: Permission denied' >&2\nexit 1\n")
+	res := runBootloreEnv(t, []string{"PATH=" + dir}, "", "collect", "--journal")
+	if res.code != 1 {
+		t.Fatalf("exit code = %d, want 1", res.code)
+	}
+	if !strings.Contains(res.stderr, "Permission denied") {
+		t.Errorf("stderr should surface backend error: %q", res.stderr)
+	}
+}
