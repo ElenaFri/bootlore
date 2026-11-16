@@ -4,10 +4,10 @@
 
 - [x] Define the internal event data model
 - [x] Collect boot events from `journald`
-- [ ] Support historical log replay and real-time event streaming
+- [x] Support historical log replay and real-time event streaming
 - [x] Preserve timestamps, priorities, sources and original messages
 - [x] Handle missing permissions and unavailable log sources gracefully
-- [ ] Avoid duplicate or missing events during the transition from replay to live monitoring
+- [x] Avoid duplicate or missing events during the transition from replay to live monitoring
 
 ## Phase 2 — Event processing
 

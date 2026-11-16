@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -213,5 +214,80 @@ func TestParseWithOrigin(t *testing.T) {
 	}
 	if events[0].Origin != event.OriginHistorical {
 		t.Errorf("Origin = %q, want historical", events[0].Origin)
+	}
+}
+
+// --- streaming parser ---
+
+// ParseStream must deliver events one by one, in order, without buffering the
+// whole stream first.
+func TestParseStreamDeliversEachEventInOrder(t *testing.T) {
+	in := `{"MESSAGE":"first","__CURSOR":"c1"}
+{"MESSAGE":"second","__CURSOR":"c2"}
+{"MESSAGE":"third","__CURSOR":"c3"}`
+
+	var got []event.Event
+	err := ParseStream(strings.NewReader(in), event.OriginLive, func(e event.Event) error {
+		got = append(got, e)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ParseStream returned error: %v", err)
+	}
+	want := []string{"first", "second", "third"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d events, want %d", len(got), len(want))
+	}
+	for i, w := range want {
+		if got[i].Message != w {
+			t.Errorf("got[%d].Message = %q, want %q", i, got[i].Message, w)
+		}
+		if got[i].Origin != event.OriginLive {
+			t.Errorf("got[%d].Origin = %q, want live", i, got[i].Origin)
+		}
+	}
+}
+
+// A consumer error must stop the stream immediately and propagate untouched,
+// so callers can use sentinel errors to stop early.
+func TestParseStreamStopsOnConsumerError(t *testing.T) {
+	sentinel := errors.New("stop now")
+	in := `{"MESSAGE":"first"}
+{"MESSAGE":"second"}`
+
+	var count int
+	err := ParseStream(strings.NewReader(in), event.OriginLive, func(e event.Event) error {
+		count++
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("ParseStream error = %v, want the consumer sentinel", err)
+	}
+	if count != 1 {
+		t.Errorf("consumer called %d times, want 1 (stream must stop)", count)
+	}
+}
+
+func TestParseStreamEmptyInput(t *testing.T) {
+	var count int
+	err := ParseStream(strings.NewReader(""), event.OriginLive, func(e event.Event) error {
+		count++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ParseStream returned error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("consumer called %d times, want 0", count)
+	}
+}
+
+func TestParseStreamMalformedJSONReturnsError(t *testing.T) {
+	err := ParseStream(strings.NewReader("{not json}"), event.OriginLive, func(e event.Event) error {
+		t.Fatal("consumer must not be called on malformed input")
+		return nil
+	})
+	if err == nil {
+		t.Fatal("ParseStream should return an error on malformed JSON")
 	}
 }

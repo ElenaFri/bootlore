@@ -40,6 +40,30 @@ func runCLI(args []string, stdin io.Reader, fr *fakeRunner) (stdout, stderr stri
 	return out.String(), errb.String(), code
 }
 
+// liveCLI invokes runWith with a collector backed by a sequence of outputs,
+// as the replay-then-live transition produces two backend invocations.
+func liveCLI(args []string, outputs ...string) (stdout, stderr string, code int) {
+	sr := &sequenceRunner{outputs: outputs}
+	var out, errb bytes.Buffer
+	code = runWith(args, strings.NewReader(""), &out, &errb, collector.New(sr))
+	return out.String(), errb.String(), code
+}
+
+// sequenceRunner returns a different output for each Run call.
+type sequenceRunner struct {
+	outputs []string
+	calls   int
+}
+
+func (s *sequenceRunner) Run(_ context.Context, _ []string) (io.ReadCloser, error) {
+	i := s.calls
+	s.calls++
+	if i >= len(s.outputs) {
+		return io.NopCloser(strings.NewReader("")), nil
+	}
+	return io.NopCloser(strings.NewReader(s.outputs[i])), nil
+}
+
 func TestRunNoArgsShowsUsage(t *testing.T) {
 	stdout, stderr, code := runCLI(nil, strings.NewReader(""), &fakeRunner{})
 	if code != 2 {
@@ -179,6 +203,46 @@ func TestCollectMalformedInputFails(t *testing.T) {
 
 func TestCollectBadFlagFails(t *testing.T) {
 	_, _, code := runCLI([]string{"collect", "--bogus"}, strings.NewReader(""), &fakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+}
+
+// The live command must first replay the boot's existing events, then stream
+// the live ones, in order, in one continuous output.
+func TestLiveReplaysThenFollows(t *testing.T) {
+	replay := `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"Reached target Multi-User System."}`
+	lived := `{"__REALTIME_TIMESTAMP":"1700000001000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"NetworkManager","_PID":"412","MESSAGE":"Started Network Manager."}`
+
+	stdout, stderr, code := liveCLI([]string{"live"}, replay, lived)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2:\n%s", len(lines), stdout)
+	}
+	if !strings.Contains(lines[0], "Reached target Multi-User System.") {
+		t.Errorf("first line = %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "Started Network Manager.") {
+		t.Errorf("second line = %q", lines[1])
+	}
+}
+
+func TestLiveBackendErrorFails(t *testing.T) {
+	fr := &fakeRunner{err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
+	_, stderr, code := runCLI([]string{"live"}, strings.NewReader(""), fr)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "hint:") {
+		t.Errorf("stderr should contain the live hint, got %q", stderr)
+	}
+}
+
+func TestLiveBadFlagFails(t *testing.T) {
+	_, _, code := liveCLI([]string{"live", "--bogus"})
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)
 	}

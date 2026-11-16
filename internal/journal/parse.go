@@ -61,25 +61,42 @@ func Parse(r io.Reader) ([]event.Event, error) {
 // ParseWithOrigin behaves like Parse but tags every produced event with the
 // given collection origin (historical replay or live monitoring).
 func ParseWithOrigin(r io.Reader, origin event.Origin) ([]event.Event, error) {
-	dec := json.NewDecoder(r)
 	var events []event.Event
+	err := ParseStream(r, origin, func(e event.Event) error {
+		events = append(events, e)
+		return nil
+	})
+	return events, err
+}
+
+// ParseStream is the streaming counterpart of ParseWithOrigin: it decodes
+// entries one by one and delivers each event to fn as soon as it is parsed,
+// without waiting for the stream to end. This is what makes live monitoring
+// possible.
+//
+// fn's error stops the stream immediately and is returned as-is (not wrapped),
+// so callers may use sentinel errors to stop early. Parsing errors are
+// wrapped with the entry number.
+func ParseStream(r io.Reader, origin event.Origin, fn func(event.Event) error) error {
+	dec := json.NewDecoder(r)
 	for n := 1; ; n++ {
 		var raw map[string]json.RawMessage
 		err := dec.Decode(&raw)
 		if err == io.EOF {
-			break
+			return nil
 		}
 		if err != nil {
-			return nil, fmt.Errorf("journal: decoding entry %d: %w", n, err)
+			return fmt.Errorf("journal: decoding entry %d: %w", n, err)
 		}
 		e, err := entryToEvent(raw)
 		if err != nil {
-			return nil, fmt.Errorf("journal: entry %d: %w", n, err)
+			return fmt.Errorf("journal: entry %d: %w", n, err)
 		}
 		e.Origin = origin
-		events = append(events, e)
+		if err := fn(e); err != nil {
+			return err
+		}
 	}
-	return events, nil
 }
 
 func entryToEvent(raw map[string]json.RawMessage) (event.Event, error) {

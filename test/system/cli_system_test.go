@@ -193,7 +193,11 @@ func writeStubJournalctl(t *testing.T, body string) string {
 // so the stub journalctl is picked up instead of the real one).
 func runBootloreEnv(t *testing.T, env []string, stdin string, args ...string) result {
 	t.Helper()
-	cmd := exec.Command(binPath, args...)
+	return runResult(exec.Command(binPath, args...), env, stdin)
+}
+
+// runResult runs a prepared command and captures its output and exit code.
+func runResult(cmd *exec.Cmd, env []string, stdin string) result {
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader(stdin)
 	var out, errb bytes.Buffer
@@ -205,8 +209,6 @@ func runBootloreEnv(t *testing.T, env []string, stdin string, args ...string) re
 		var exitErr *exec.ExitError
 		if asExitError(err, &exitErr) {
 			code = exitErr.ExitCode()
-		} else {
-			t.Fatalf("running bootlore %v: %v", args, err)
 		}
 	}
 	return result{stdout: out.String(), stderr: errb.String(), code: code}
@@ -243,5 +245,39 @@ func TestCollectJournalBackendFailure(t *testing.T) {
 	}
 	if !strings.Contains(res.stderr, "Permission denied") {
 		t.Errorf("stderr should surface backend error: %q", res.stderr)
+	}
+}
+
+// bootlore live must replay the boot's existing events and then stream live
+// ones, in order, through two real journalctl invocations.
+func TestLiveCommandReplaysThenFollows(t *testing.T) {
+	dir := writeStubJournalctl(t, `case "$*" in
+  *--after-cursor*)
+    printf '%s\n' '{"MESSAGE":"live event","__CURSOR":"c3","PRIORITY":"6"}'
+    ;;
+  *)
+    printf '%s\n' '{"MESSAGE":"replayed event","__CURSOR":"c1","PRIORITY":"6"}'
+    ;;
+esac
+`)
+	res := runBootloreEnv(t, []string{"PATH=" + dir}, "", "live")
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "replayed event") {
+		t.Errorf("stdout should contain the replayed event:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "live event") {
+		t.Errorf("stdout should contain the live event:\n%s", res.stdout)
+	}
+	if strings.Index(res.stdout, "replayed event") > strings.Index(res.stdout, "live event") {
+		t.Error("replayed events must be printed before live events")
+	}
+}
+
+func TestLiveBadFlagFails(t *testing.T) {
+	res := runBootlore(t, "", "live", "--bogus")
+	if res.code != 2 {
+		t.Errorf("exit code = %d, want 2", res.code)
 	}
 }

@@ -17,10 +17,12 @@ const DefaultBinary = "journalctl"
 // found or executed. Callers can use errors.Is to detect it and advise the user.
 var ErrBackendUnavailable = errors.New("journal backend unavailable")
 
-// execRunner runs the real journalctl binary and buffers its output.
+// execRunner runs the real journalctl binary and streams its output.
 //
-// Buffering (rather than streaming) is sufficient for historical replay of a
-// single boot; live following will warrant a streaming runner later.
+// Streaming (rather than buffering) is required for live monitoring: with
+// journalctl -f the process runs until it is killed, so its output must be
+// consumed while it is still running. For historical replay the stream simply
+// ends when journalctl exits.
 type execRunner struct {
 	binary string
 }
@@ -41,16 +43,42 @@ func (r *execRunner) Run(ctx context.Context, args []string) (io.ReadCloser, err
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	out, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, runError(r.binary, err, stderr.String())
 	}
-	return io.NopCloser(bytes.NewReader(out)), nil
+	if err := cmd.Start(); err != nil {
+		return nil, runError(r.binary, err, stderr.String())
+	}
+	return &cmdStream{cmd: cmd, stdout: stdout, stderr: &stderr}, nil
+}
+
+// cmdStream adapts a started command's stdout pipe into an io.ReadCloser.
+// Read streams the backend's output live; Close reaps the process and turns a
+// backend failure (non-zero exit, e.g. a permission problem) into an error.
+type cmdStream struct {
+	cmd    *exec.Cmd
+	stdout io.ReadCloser
+	stderr *bytes.Buffer
+}
+
+func (s *cmdStream) Read(p []byte) (int, error) {
+	return s.stdout.Read(p)
+}
+
+func (s *cmdStream) Close() error {
+	s.stdout.Close()
+	return runError(s.cmd.Args[0], s.cmd.Wait(), s.stderr.String())
 }
 
 // runError turns an exec failure into a clear, actionable error, surfacing the
-// backend's own stderr (e.g. permission problems) when available.
+// backend's own stderr (e.g. permission problems) when available. A nil err is
+// passed through as nil.
 func runError(binary string, err error, stderr string) error {
+	if err == nil {
+		return nil
+	}
+
 	msg := strings.TrimSpace(stderr)
 
 	var exitErr *exec.ExitError

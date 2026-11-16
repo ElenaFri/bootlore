@@ -26,6 +26,9 @@ make build
 # Read the current boot straight from the system journal
 ./bin/bootlore collect
 
+# Replay the current boot, then follow new events live (Ctrl-C stops)
+./bin/bootlore live
+
 # ...or pipe journal data in
 journalctl -b -o json | ./bin/bootlore collect
 

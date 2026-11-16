@@ -26,6 +26,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/ElenaFri/bootlore/internal/collector"
 	"github.com/ElenaFri/bootlore/internal/event"
@@ -57,6 +59,8 @@ func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collec
 	switch args[0] {
 	case "collect":
 		return cmdCollect(args[1:], stdin, stdout, stderr, c)
+	case "live":
+		return cmdLive(args[1:], stdout, stderr, c)
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "bootlore %s\n", version)
 		return 0
@@ -78,6 +82,7 @@ Usage:
 
 Commands:
   collect    Print the LOG view of a boot (from journald, a file or stdin)
+  live       Replay the current boot, then follow new events live (Ctrl-C stops)
   version    Print the BootLore version
   help       Show this help
 
@@ -86,9 +91,13 @@ collect flags:
   --boot OFFSET    which boot to read: 0 (current, default), -1 (previous), ...
   --input FILE     read captured journal JSON (journalctl -o json) from FILE
 
+live flags:
+  --boot OFFSET    which boot to watch (default: current)
+
 Examples:
   bootlore collect
   bootlore collect --boot -1
+  bootlore live
   journalctl -b -o json | bootlore collect
   bootlore collect --input boot.json
 `)
@@ -153,4 +162,35 @@ func stdinIsPiped(r io.Reader) bool {
 		return true
 	}
 	return fi.Mode()&os.ModeCharDevice == 0
+}
+
+// cmdLive replays the requested boot (historical events) and then follows the
+// journal live, printing the LOG view as events arrive. It stops cleanly on
+// SIGINT/SIGTERM.
+func cmdLive(args []string, stdout, stderr io.Writer, c *collector.Collector) int {
+	fs := flag.NewFlagSet("live", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	boot := fs.String("boot", "", "boot to watch as a journalctl -b offset (default current boot)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	out := bufio.NewWriter(stdout)
+	err := c.Watch(ctx, collector.Options{Boot: *boot}, func(e event.Event) error {
+		fmt.Fprintln(out, render.LogLine(e))
+		// Flush per event: live output must appear as it happens, not in
+		// batches when the process eventually exits.
+		return out.Flush()
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		if errors.Is(err, collector.ErrBackendUnavailable) {
+			fmt.Fprintln(stderr, "hint: BootLore's live mode needs systemd's journalctl")
+		}
+		return 1
+	}
+	return 0
 }
