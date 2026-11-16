@@ -12,7 +12,7 @@
 ## Phase 2 — Event processing
 
 - [x] Parse and normalize collected events
-- [ ] Classify events by subsystem (kernel, hardware, storage, network, systemd, security, desktop)
+- [x] Classify events by subsystem (kernel, hardware, storage, network, systemd, security, desktop)
 - [ ] Distinguish raw log severity from actual operational significance
 - [ ] Identify warnings, failures and potentially relevant events
 - [ ] Add contextual explanations for common boot messages

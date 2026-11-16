@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ElenaFri/bootlore/internal/collectortest"
 )
 
 var (
@@ -178,17 +180,6 @@ func nonEmptyLines(s string) []string {
 
 // --- journald source (via a stub journalctl on PATH) ---
 
-// writeStubJournalctl creates an executable journalctl stub in a temp dir and
-// returns that directory, suitable for use as the only PATH entry.
-func writeStubJournalctl(t *testing.T, body string) string {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "journalctl"), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
-		t.Fatalf("writing stub journalctl: %v", err)
-	}
-	return dir
-}
-
 // runBootloreEnv runs the binary with a custom environment (used to control PATH
 // so the stub journalctl is picked up instead of the real one).
 func runBootloreEnv(t *testing.T, env []string, stdin string, args ...string) result {
@@ -215,7 +206,7 @@ func runResult(cmd *exec.Cmd, env []string, stdin string) result {
 }
 
 func TestCollectFromJournal(t *testing.T) {
-	dir := writeStubJournalctl(t, `printf '%s\n' '{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"Reached target Multi-User System."}'`)
+	dir := collectortest.WriteStubJournalctl(t, `printf '%s\n' '{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"Reached target Multi-User System."}'`)
 	res := runBootloreEnv(t, []string{"PATH=" + dir}, "", "collect", "--journal")
 	if res.code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
@@ -238,7 +229,7 @@ func TestCollectJournalBackendMissing(t *testing.T) {
 
 // A failing journalctl (e.g. permission denied) must surface the backend error.
 func TestCollectJournalBackendFailure(t *testing.T) {
-	dir := writeStubJournalctl(t, "echo 'Failed to add match: Permission denied' >&2\nexit 1\n")
+	dir := collectortest.WriteStubJournalctl(t, "echo 'Failed to add match: Permission denied' >&2\nexit 1\n")
 	res := runBootloreEnv(t, []string{"PATH=" + dir}, "", "collect", "--journal")
 	if res.code != 1 {
 		t.Fatalf("exit code = %d, want 1", res.code)
@@ -251,26 +242,18 @@ func TestCollectJournalBackendFailure(t *testing.T) {
 // bootlore live must replay the boot's existing events and then stream live
 // ones, in order, through two real journalctl invocations.
 func TestLiveCommandReplaysThenFollows(t *testing.T) {
-	dir := writeStubJournalctl(t, `case "$*" in
-  *--after-cursor*)
-    printf '%s\n' '{"MESSAGE":"live event","__CURSOR":"c3","PRIORITY":"6"}'
-    ;;
-  *)
-    printf '%s\n' '{"MESSAGE":"replayed event","__CURSOR":"c1","PRIORITY":"6"}'
-    ;;
-esac
-`)
+	dir := collectortest.WriteStubJournalctl(t, collectortest.StubReplayThenLive)
 	res := runBootloreEnv(t, []string{"PATH=" + dir}, "", "live")
 	if res.code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
 	}
-	if !strings.Contains(res.stdout, "replayed event") {
-		t.Errorf("stdout should contain the replayed event:\n%s", res.stdout)
+	if !strings.Contains(res.stdout, "replayed 1") {
+		t.Errorf("stdout should contain the replayed events:\n%s", res.stdout)
 	}
 	if !strings.Contains(res.stdout, "live event") {
 		t.Errorf("stdout should contain the live event:\n%s", res.stdout)
 	}
-	if strings.Index(res.stdout, "replayed event") > strings.Index(res.stdout, "live event") {
+	if strings.Index(res.stdout, "replayed 1") > strings.Index(res.stdout, "live event") {
 		t.Error("replayed events must be printed before live events")
 	}
 }

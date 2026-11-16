@@ -1,0 +1,23 @@
+# Codecov configuration for BootLore.
+# https://docs.codecov.com/docs/codecovyml-reference
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        # Allow a tiny dip so unrelated churn does not fail the gate.
+        threshold: 1%
+    patch:
+      default:
+        # New/changed lines should be well covered.
+        target: 80%
+
+# Test scaffolding is exercised indirectly and is not product logic; excluding it
+# keeps the reported coverage focused on behavior that matters.
+ignore:
+  - "internal/collectortest"
+
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: false

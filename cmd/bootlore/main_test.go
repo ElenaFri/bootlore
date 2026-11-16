@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,61 +10,30 @@ import (
 	"testing"
 
 	"github.com/ElenaFri/bootlore/internal/collector"
+	"github.com/ElenaFri/bootlore/internal/collectortest"
 )
-
-// fakeRunner is an in-process test double for the journal backend.
-type fakeRunner struct {
-	output string
-	err    error
-}
-
-func (f *fakeRunner) Run(_ context.Context, _ []string) (io.ReadCloser, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return io.NopCloser(strings.NewReader(f.output)), nil
-}
-
-func newCollector(fr *fakeRunner) *collector.Collector {
-	return collector.New(fr)
-}
 
 const twoEntries = `{"__REALTIME_TIMESTAMP":"1700000000000000","__MONOTONIC_TIMESTAMP":"1200000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"Reached target Multi-User System."}
 {"__REALTIME_TIMESTAMP":"1700000001000000","PRIORITY":"4","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"unit.service: Failed with result 'exit-code'."}`
 
-// runCLI is a helper that invokes runWith with buffers and the given collector.
-func runCLI(args []string, stdin io.Reader, fr *fakeRunner) (stdout, stderr string, code int) {
+// runCLI invokes runWith with buffers and a collector backed by fr.
+func runCLI(args []string, stdin io.Reader, fr *collectortest.FakeRunner) (stdout, stderr string, code int) {
 	var out, errb bytes.Buffer
-	code = runWith(args, stdin, &out, &errb, newCollector(fr))
+	code = runWith(args, stdin, &out, &errb, collector.New(fr))
 	return out.String(), errb.String(), code
 }
 
-// liveCLI invokes runWith with a collector backed by a sequence of outputs,
-// as the replay-then-live transition produces two backend invocations.
+// liveCLI invokes runWith with a collector backed by a sequence of outputs, as
+// the replay-then-live transition produces two backend invocations.
 func liveCLI(args []string, outputs ...string) (stdout, stderr string, code int) {
-	sr := &sequenceRunner{outputs: outputs}
+	sr := &collectortest.SequenceRunner{Outputs: outputs}
 	var out, errb bytes.Buffer
 	code = runWith(args, strings.NewReader(""), &out, &errb, collector.New(sr))
 	return out.String(), errb.String(), code
 }
 
-// sequenceRunner returns a different output for each Run call.
-type sequenceRunner struct {
-	outputs []string
-	calls   int
-}
-
-func (s *sequenceRunner) Run(_ context.Context, _ []string) (io.ReadCloser, error) {
-	i := s.calls
-	s.calls++
-	if i >= len(s.outputs) {
-		return io.NopCloser(strings.NewReader("")), nil
-	}
-	return io.NopCloser(strings.NewReader(s.outputs[i])), nil
-}
-
 func TestRunNoArgsShowsUsage(t *testing.T) {
-	stdout, stderr, code := runCLI(nil, strings.NewReader(""), &fakeRunner{})
+	stdout, stderr, code := runCLI(nil, strings.NewReader(""), &collectortest.FakeRunner{})
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)
 	}
@@ -78,7 +46,7 @@ func TestRunNoArgsShowsUsage(t *testing.T) {
 }
 
 func TestRunVersion(t *testing.T) {
-	stdout, _, code := runCLI([]string{"version"}, strings.NewReader(""), &fakeRunner{})
+	stdout, _, code := runCLI([]string{"version"}, strings.NewReader(""), &collectortest.FakeRunner{})
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
@@ -88,7 +56,7 @@ func TestRunVersion(t *testing.T) {
 }
 
 func TestRunHelp(t *testing.T) {
-	stdout, _, code := runCLI([]string{"help"}, strings.NewReader(""), &fakeRunner{})
+	stdout, _, code := runCLI([]string{"help"}, strings.NewReader(""), &collectortest.FakeRunner{})
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
@@ -98,7 +66,7 @@ func TestRunHelp(t *testing.T) {
 }
 
 func TestRunUnknownCommand(t *testing.T) {
-	_, stderr, code := runCLI([]string{"frobnicate"}, strings.NewReader(""), &fakeRunner{})
+	_, stderr, code := runCLI([]string{"frobnicate"}, strings.NewReader(""), &collectortest.FakeRunner{})
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)
 	}
@@ -108,7 +76,7 @@ func TestRunUnknownCommand(t *testing.T) {
 }
 
 func TestCollectFromStdin(t *testing.T) {
-	stdout, stderr, code := runCLI([]string{"collect"}, strings.NewReader(twoEntries), &fakeRunner{})
+	stdout, stderr, code := runCLI([]string{"collect"}, strings.NewReader(twoEntries), &collectortest.FakeRunner{})
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
 	}
@@ -129,7 +97,7 @@ func TestCollectFromFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(twoEntries), 0o644); err != nil {
 		t.Fatalf("writing temp file: %v", err)
 	}
-	stdout, _, code := runCLI([]string{"collect", "--input", path}, strings.NewReader(""), &fakeRunner{})
+	stdout, _, code := runCLI([]string{"collect", "--input", path}, strings.NewReader(""), &collectortest.FakeRunner{})
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
@@ -139,7 +107,7 @@ func TestCollectFromFile(t *testing.T) {
 }
 
 func TestCollectFromFileError(t *testing.T) {
-	_, stderr, code := runCLI([]string{"collect", "--input", "/nonexistent/boot.json"}, strings.NewReader(""), &fakeRunner{})
+	_, stderr, code := runCLI([]string{"collect", "--input", "/nonexistent/boot.json"}, strings.NewReader(""), &collectortest.FakeRunner{})
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
@@ -149,7 +117,7 @@ func TestCollectFromFileError(t *testing.T) {
 }
 
 func TestCollectFromJournalFlag(t *testing.T) {
-	fr := &fakeRunner{output: twoEntries}
+	fr := &collectortest.FakeRunner{Output: twoEntries}
 	stdout, stderr, code := runCLI([]string{"collect", "--journal"}, strings.NewReader(""), fr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
@@ -167,7 +135,7 @@ func TestCollectDefaultsToJournalWithoutPipe(t *testing.T) {
 	}
 	t.Cleanup(func() { devnull.Close() })
 
-	fr := &fakeRunner{output: twoEntries}
+	fr := &collectortest.FakeRunner{Output: twoEntries}
 	stdout, _, code := runCLI([]string{"collect"}, devnull, fr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
@@ -178,7 +146,7 @@ func TestCollectDefaultsToJournalWithoutPipe(t *testing.T) {
 }
 
 func TestCollectJournalBackendUnavailableShowsHint(t *testing.T) {
-	fr := &fakeRunner{err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
+	fr := &collectortest.FakeRunner{Err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
 	_, stderr, code := runCLI([]string{"collect", "--journal"}, strings.NewReader(""), fr)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
@@ -189,7 +157,7 @@ func TestCollectJournalBackendUnavailableShowsHint(t *testing.T) {
 }
 
 func TestCollectMalformedInputFails(t *testing.T) {
-	_, stderr, code := runCLI([]string{"collect"}, strings.NewReader("{not json}"), &fakeRunner{})
+	_, stderr, code := runCLI([]string{"collect"}, strings.NewReader("{not json}"), &collectortest.FakeRunner{})
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
@@ -202,7 +170,7 @@ func TestCollectMalformedInputFails(t *testing.T) {
 }
 
 func TestCollectBadFlagFails(t *testing.T) {
-	_, _, code := runCLI([]string{"collect", "--bogus"}, strings.NewReader(""), &fakeRunner{})
+	_, _, code := runCLI([]string{"collect", "--bogus"}, strings.NewReader(""), &collectortest.FakeRunner{})
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)
 	}
@@ -231,7 +199,7 @@ func TestLiveReplaysThenFollows(t *testing.T) {
 }
 
 func TestLiveBackendErrorFails(t *testing.T) {
-	fr := &fakeRunner{err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
+	fr := &collectortest.FakeRunner{Err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
 	_, stderr, code := runCLI([]string{"live"}, strings.NewReader(""), fr)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)

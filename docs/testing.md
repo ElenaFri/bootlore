@@ -95,6 +95,11 @@ sensitive before committing (hostnames, IPs, user names).
   `Message` is unchanged.
 - Unit tests must not spawn external processes or touch the network; prefer
   in-memory inputs (use `t.TempDir` for the rare file-based case, e.g. `--input`).
+- Share test doubles instead of copying them: the journal backend fakes
+  (`FakeRunner`, `SequenceRunner`, `BlockingRunner`) and the `journalctl` stub
+  helper live in `internal/collectortest` and are reused by the unit,
+  integration and system tiers. It is imported only by tests and is excluded
+  from the coverage report (see `codecov.yml`).
 
 ## Continuous integration
 

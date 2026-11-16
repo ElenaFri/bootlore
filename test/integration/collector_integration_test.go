@@ -5,32 +5,19 @@ package integration
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ElenaFri/bootlore/internal/collector"
+	"github.com/ElenaFri/bootlore/internal/collectortest"
 	"github.com/ElenaFri/bootlore/internal/event"
 )
-
-// writeStubJournalctl creates an executable `journalctl` stub in a fresh temp
-// directory and returns that directory. The script body is provided by caller.
-func writeStubJournalctl(t *testing.T, body string) string {
-	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "journalctl")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
-		t.Fatalf("writing stub: %v", err)
-	}
-	return dir
-}
 
 // The real exec runner must invoke journalctl, read its JSON output and produce
 // normalized historical events.
 func TestExecRunnerCollectsFromStubJournalctl(t *testing.T) {
-	dir := writeStubJournalctl(t, `printf '%s\n' '{"MESSAGE":"stub line 1","PRIORITY":"6"}' '{"MESSAGE":"stub line 2","PRIORITY":"4"}'`)
+	dir := collectortest.WriteStubJournalctl(t, `printf '%s\n' '{"MESSAGE":"stub line 1","PRIORITY":"6"}' '{"MESSAGE":"stub line 2","PRIORITY":"4"}'`)
 	t.Setenv("PATH", dir)
 
 	c := collector.New(collector.NewExecRunner())
@@ -65,7 +52,7 @@ func TestExecRunnerBackendNotFound(t *testing.T) {
 // A failing journalctl (e.g. permission denied) must surface gracefully and
 // carry the backend's own message.
 func TestExecRunnerBackendFailure(t *testing.T) {
-	dir := writeStubJournalctl(t, "echo 'Failed to add match: Permission denied' >&2\nexit 1\n")
+	dir := collectortest.WriteStubJournalctl(t, "echo 'Failed to add match: Permission denied' >&2\nexit 1\n")
 	t.Setenv("PATH", dir)
 
 	c := collector.New(collector.NewExecRunner())
@@ -81,7 +68,7 @@ func TestExecRunnerBackendFailure(t *testing.T) {
 // A failing journalctl that prints nothing on stderr must still produce a
 // clear error, falling back to the exit status.
 func TestExecRunnerBackendFailureSilent(t *testing.T) {
-	dir := writeStubJournalctl(t, "exit 7\n")
+	dir := collectortest.WriteStubJournalctl(t, "exit 7\n")
 	t.Setenv("PATH", dir)
 
 	c := collector.New(collector.NewExecRunner())
@@ -99,7 +86,7 @@ func TestExecRunnerBackendFailureSilent(t *testing.T) {
 // Follow must deliver events as they arrive and end cleanly when the context
 // is canceled while the backend is still running.
 func TestFollowDeliversAndStopsOnCancel(t *testing.T) {
-	dir := writeStubJournalctl(t, `printf '%s\n' '{"MESSAGE":"live one","__CURSOR":"c1","PRIORITY":"6"}'
+	dir := collectortest.WriteStubJournalctl(t, `printf '%s\n' '{"MESSAGE":"live one","__CURSOR":"c1","PRIORITY":"6"}'
 exec sleep 30
 `)
 	t.Setenv("PATH", dir)
@@ -141,15 +128,7 @@ exec sleep 30
 // invocations: the stub distinguishes them by their arguments, like the real
 // journalctl would (the live call carries --after-cursor).
 func TestWatchSeamlessWithStubJournalctl(t *testing.T) {
-	dir := writeStubJournalctl(t, `case "$*" in
-  *--after-cursor*)
-    printf '%s\n' '{"MESSAGE":"live event","__CURSOR":"c3","PRIORITY":"6"}'
-    ;;
-  *)
-    printf '%s\n' '{"MESSAGE":"replayed 1","__CURSOR":"c1","PRIORITY":"6"}' '{"MESSAGE":"replayed 2","__CURSOR":"c2","PRIORITY":"6"}'
-    ;;
-esac
-`)
+	dir := collectortest.WriteStubJournalctl(t, collectortest.StubReplayThenLive)
 	t.Setenv("PATH", dir)
 
 	c := collector.New(collector.NewExecRunner())
