@@ -15,8 +15,8 @@
 - [x] Classify events by subsystem (kernel, hardware, storage, network, systemd, security, desktop)
 - [x] Distinguish raw log severity from actual operational significance
 - [x] Identify warnings, failures and potentially relevant events
-- [ ] Add contextual explanations for common boot messages
-- [ ] Provide different levels of explanation: overview, technical and in-depth
+- [x] Add contextual explanations for common boot messages
+- [x] Provide different levels of explanation: overview, technical and in-depth
 
 ## Phase 3 — CLI and TUI
 
