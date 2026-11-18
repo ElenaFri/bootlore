@@ -65,6 +65,8 @@ func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collec
 		return cmdLive(args[1:], stdout, stderr, c)
 	case "explain":
 		return cmdExplain(args[1:], stdin, stdout, stderr, c)
+	case "errors":
+		return cmdErrors(args[1:], stdin, stdout, stderr, c)
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "bootlore %s\n", version)
 		return 0
@@ -88,6 +90,7 @@ Commands:
   collect    Print the LOG view of a boot (from journald, a file or stdin)
   live       Replay the current boot, then follow new events live (Ctrl-C stops)
   explain    Print the HUMAN view with contextual, educational explanations
+  errors     Print only warnings and failures (HUMAN view by default)
   version    Print the BootLore version
   help       Show this help
 
@@ -112,6 +115,7 @@ Examples:
   bootlore collect --boot -1 --view human
   bootlore live
   bootlore explain --level in-depth
+  bootlore errors
   journalctl -b -o json | bootlore collect
   bootlore collect --input boot.json
 `)
@@ -181,6 +185,52 @@ func collectEvents(input string, fromJournal bool, boot string, stdin io.Reader,
 	default:
 		return journal.ParseWithOrigin(stdin, event.OriginHistorical)
 	}
+}
+
+// cmdErrors prints only noteworthy events (warnings and failures) for a boot.
+// It defaults to the HUMAN view: the command answers "what went wrong?", which
+// is exactly what the interpreted view shows. When nothing noteworthy is
+// found, it says so explicitly rather than printing nothing.
+func cmdErrors(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
+	fs := flag.NewFlagSet("errors", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	input := fs.String("input", "", "read journal JSON (journalctl -o json) from this file")
+	fromJournal := fs.Bool("journal", false, "read directly from the system journal (journalctl)")
+	boot := fs.String("boot", "", "boot to read as a journalctl -b offset (default current boot)")
+	view := fs.String("view", "human", "event view: human (default) or log")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	line, err := viewRenderer(*view)
+	if err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		return 2
+	}
+
+	events, err := collectEvents(*input, *fromJournal, *boot, stdin, c)
+	if err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		if errors.Is(err, collector.ErrBackendUnavailable) {
+			fmt.Fprintln(stderr, "hint: pipe journal data instead, e.g. `journalctl -b -o json | bootlore errors`")
+		}
+		return 1
+	}
+
+	out := bufio.NewWriter(stdout)
+	defer out.Flush()
+	found := 0
+	for _, ev := range events {
+		e := interpret.Interpret(ev)
+		if !e.Significance.IsNoteworthy() {
+			continue
+		}
+		found++
+		fmt.Fprintln(out, line(e))
+	}
+	if found == 0 {
+		fmt.Fprintln(out, "No warnings or failures found.")
+	}
+	return 0
 }
 
 // stdinIsPiped reports whether stdin carries piped data rather than being an

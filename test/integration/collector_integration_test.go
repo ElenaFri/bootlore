@@ -5,6 +5,8 @@ package integration
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -73,6 +75,28 @@ func TestExecRunnerBackendFailureSilent(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exit status 7") {
 		t.Errorf("error should include the exit status: %q", err.Error())
+	}
+}
+
+// A journalctl that exists and is executable but cannot be exec'd (invalid
+// binary format) must surface as ErrBackendUnavailable, not a crash.
+func TestExecRunnerStartFailsOnInvalidBinary(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "journalctl")
+	// Executable bit set, but neither an ELF image nor a script (no shebang):
+	// LookPath succeeds, exec fails.
+	if err := os.WriteFile(bin, []byte("definitely not an executable image"), 0o755); err != nil {
+		t.Fatalf("writing invalid binary: %v", err)
+	}
+	t.Setenv("PATH", dir)
+
+	c := collector.New(collector.NewExecRunner())
+	_, err := c.Collect(context.Background(), collector.Options{})
+	if !errors.Is(err, collector.ErrBackendUnavailable) {
+		t.Fatalf("error = %v, want ErrBackendUnavailable", err)
+	}
+	if !strings.Contains(err.Error(), "journalctl") {
+		t.Errorf("error should mention journalctl: %q", err.Error())
 	}
 }
 

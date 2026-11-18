@@ -20,10 +20,10 @@
 
 ## Phase 3 — CLI and TUI
 
-- [ ] Implement the command-line interface
+- [x] Implement the command-line interface (`collect`, `live`, `explain`, `errors`, with LOG/HUMAN views and explanation levels)
 - [ ] Build a terminal-based real-time boot monitor
 - [ ] Display a chronological event timeline
-- [ ] Add event filtering and navigation
+- [ ] Add event filtering and navigation (`errors` already filters warnings/failures)
 - [ ] Provide detailed event inspection
 - [ ] Support small terminal sizes and monochrome output
 

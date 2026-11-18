@@ -314,3 +314,67 @@ func TestExplainBadLevelFails(t *testing.T) {
 		t.Errorf("exit code = %d, want 2", res.code)
 	}
 }
+
+// --- errors command / live view (end-to-end) ---
+
+func TestErrorsCommand(t *testing.T) {
+	res := runBootlore(t, "", "errors", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	lines := nonEmptyLines(res.stdout)
+	if len(lines) != 1 {
+		t.Fatalf("got %d lines, want 1 (only the bluetooth failure is noteworthy):\n%s", len(lines), res.stdout)
+	}
+	if !strings.Contains(lines[0], "[failure] SYSTEMD: A unit reported a failure.") {
+		t.Errorf("line = %q", lines[0])
+	}
+}
+
+func TestErrorsNoneFound(t *testing.T) {
+	normal := `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Reached target Multi-User System."}`
+	res := runBootlore(t, normal, "errors")
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "No warnings or failures found.") {
+		t.Errorf("stdout should say that nothing noteworthy was found:\n%s", res.stdout)
+	}
+}
+
+func TestErrorsJournalBackendMissing(t *testing.T) {
+	res := runBootloreEnv(t, []string{"PATH=" + t.TempDir()}, "", "errors", "--journal")
+	if res.code != 1 {
+		t.Fatalf("exit code = %d, want 1 (stderr = %q)", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stderr, "journalctl") {
+		t.Errorf("stderr should mention journalctl: %q", res.stderr)
+	}
+}
+
+func TestExplainJournalBackendMissing(t *testing.T) {
+	res := runBootloreEnv(t, []string{"PATH=" + t.TempDir()}, "", "explain", "--journal")
+	if res.code != 1 {
+		t.Fatalf("exit code = %d, want 1 (stderr = %q)", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stderr, "journalctl") {
+		t.Errorf("stderr should mention journalctl: %q", res.stderr)
+	}
+}
+
+func TestLiveViewHuman(t *testing.T) {
+	dir := collectortest.WriteStubJournalctl(t, collectortest.StubReplayThenLive)
+	res := runBootloreEnv(t, []string{"PATH=" + dir}, "", "live", "--view", "human")
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "[normal] replayed 2") {
+		t.Errorf("stdout should contain the human-view replay lines:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "[normal] live event") {
+		t.Errorf("stdout should contain the human-view live line:\n%s", res.stdout)
+	}
+	if strings.Index(res.stdout, "replayed 2") > strings.Index(res.stdout, "live event") {
+		t.Error("replayed events must be printed before live events")
+	}
+}

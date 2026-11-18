@@ -217,6 +217,89 @@ func TestLiveBadFlagFails(t *testing.T) {
 	}
 }
 
+// --- backfilled branches ---
+
+func TestLiveViewInvalidFails(t *testing.T) {
+	_, _, code := liveCLI([]string{"live", "--view", "bogus"})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+}
+
+func TestExplainBackendUnavailableShowsHint(t *testing.T) {
+	fr := &collectortest.FakeRunner{Err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
+	_, stderr, code := runCLI([]string{"explain", "--journal"}, strings.NewReader(""), fr)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "hint:") {
+		t.Errorf("stderr should contain the explain hint, got %q", stderr)
+	}
+}
+
+func TestExplainFileErrorFails(t *testing.T) {
+	_, stderr, code := runCLI([]string{"explain", "--input", "/nonexistent/boot.json"}, strings.NewReader(""), &collectortest.FakeRunner{})
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "/nonexistent/boot.json") {
+		t.Errorf("stderr should mention the file, got %q", stderr)
+	}
+}
+
+// --- errors command (noteworthy events only) ---
+
+const failureEntry = `{"__REALTIME_TIMESTAMP":"1700000002000000","PRIORITY":"4","SYSLOG_IDENTIFIER":"systemd","_PID":"1","_SYSTEMD_UNIT":"bluetooth.service","MESSAGE":"bluetooth.service: Failed with result 'exit-code'."}`
+
+func TestErrorsShowsOnlyNoteworthyEvents(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"errors"}, strings.NewReader(nmEntry+"\n"+failureEntry), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	assertLines(t, stdout, "[failure] SYSTEMD: A unit reported a failure. The cause is not stated here and needs investigation.")
+	if strings.Contains(stdout, "Network Manager") {
+		t.Errorf("normal events must be filtered out:\n%s", stdout)
+	}
+}
+
+func TestErrorsNoneFound(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"errors"}, strings.NewReader(nmEntry), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "No warnings or failures found.") {
+		t.Errorf("stdout should say that nothing noteworthy was found:\n%s", stdout)
+	}
+}
+
+func TestErrorsViewLog(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"errors", "--view", "log"}, strings.NewReader(failureEntry), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "[warning] systemd[1]: bluetooth.service: Failed with result 'exit-code'.") {
+		t.Errorf("log view should show the original line:\n%s", stdout)
+	}
+}
+
+func TestErrorsViewInvalidFails(t *testing.T) {
+	_, _, code := runCLI([]string{"errors", "--view", "bogus"}, strings.NewReader(failureEntry), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+}
+
+func TestErrorsBackendUnavailableShowsHint(t *testing.T) {
+	fr := &collectortest.FakeRunner{Err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
+	_, stderr, code := runCLI([]string{"errors", "--journal"}, strings.NewReader(""), fr)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "hint:") {
+		t.Errorf("stderr should contain the hint, got %q", stderr)
+	}
+}
+
 // --- HUMAN view (--view human) ---
 
 const nmEntry = `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","_SYSTEMD_UNIT":"NetworkManager.service","MESSAGE":"Started Network Manager."}`

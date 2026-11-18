@@ -35,6 +35,9 @@ make build
 # Educational explanations, at three depths
 ./bin/bootlore explain --level in-depth
 
+# Focus on what went wrong: warnings and failures only
+./bin/bootlore errors
+
 # ...or pipe journal data in
 journalctl -b -o json | ./bin/bootlore collect
 
