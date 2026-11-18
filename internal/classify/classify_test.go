@@ -153,17 +153,142 @@ func TestClassifyByUnitSuffix(t *testing.T) {
 	}
 }
 
-// A systemd-managed unit with no more specific domain falls back to SYSTEMD,
-// even when the source is not literally "systemd".
-func TestClassifySystemdUnitFallback(t *testing.T) {
+// The unit of the *emitting process* says nothing about the subsystem of an
+// event: on a real journal every entry carries one (user@1000.service,
+// session-3.scope, ...). A bare systemd unit type therefore must not imply
+// SYSTEMD; only systemd itself (the source) does. Found by running the
+// classifier on a real journal, where it classified everything as SYSTEMD.
+func TestClassifyUnitAloneDoesNotImplySystemd(t *testing.T) {
 	cases := []event.Event{
 		{Unit: "basic.target"},
-		{Unit: "dbus.socket", Source: ""},
+		{Unit: "dbus.socket"},
 		{Unit: "logrotate.timer"},
+		{Unit: "user@1000.service", Source: "some-app"},
+		{Unit: "session-3.scope", Source: "qemu-system-x86"},
 	}
 	for i, e := range cases {
+		if got := Classify(e); got != event.CategoryUnclassified {
+			t.Errorf("case %d (%s / %s): Classify() = %q, want unclassified", i, e.Unit, e.Source, got)
+		}
+	}
+}
+
+// systemd itself and its components are the SYSTEMD subsystem.
+func TestClassifySystemdComponents(t *testing.T) {
+	for _, src := range []string{"systemd", "systemd-coredump", "systemd-logind", "systemd-journald", "(sd-pam)"} {
+		e := event.Event{Source: src, Unit: "user@1000.service"}
 		if got := Classify(e); got != event.CategorySystemd {
-			t.Errorf("case %d (%s): Classify() = %q, want SYSTEMD", i, e.Unit, got)
+			t.Errorf("source %q: Classify() = %q, want SYSTEMD", src, got)
+		}
+	}
+}
+
+// systemd's own job messages carry the unit they are about in UNIT (system
+// manager) or USER_UNIT (user manager); that subject, not the emitting unit,
+// decides the subsystem.
+func TestClassifyUsesSubjectUnit(t *testing.T) {
+	cases := []struct {
+		name string
+		e    event.Event
+		want event.Category
+	}{
+		{
+			"system manager, network subject",
+			event.Event{Source: "systemd", Unit: "init.scope", Fields: map[string]string{"UNIT": "NetworkManager.service"}, Message: "Started Network Manager."},
+			event.CategoryNetwork,
+		},
+		{
+			"system manager, storage subject",
+			event.Event{Source: "systemd", Unit: "init.scope", Fields: map[string]string{"UNIT": "home.mount"}, Message: "Mounted /home."},
+			event.CategoryStorage,
+		},
+		{
+			"user manager, audio session subject",
+			event.Event{Source: "systemd", Unit: "user@1000.service", Fields: map[string]string{"_SYSTEMD_USER_UNIT": "init.scope", "USER_UNIT": "wireplumber.service"}, Message: "Started Multimedia Service Session Manager."},
+			event.CategoryDesktop,
+		},
+		{
+			"user manager, dbus-activated desktop service",
+			event.Event{Source: "systemd", Unit: "user@1000.service", Fields: map[string]string{"USER_UNIT": "dbus-:1.2-org.xfce.ScreenSaver@0.service"}, Message: "Starting Xfce Screensaver..."},
+			event.CategoryDesktop,
+		},
+		{
+			"user manager, gnome and accessibility subjects",
+			event.Event{Source: "systemd", Unit: "user@1000.service", Fields: map[string]string{"USER_UNIT": "dbus-:1.9-org.a11y.atspi.Registry@0.service"}, Message: "Started Accessibility services."},
+			event.CategoryDesktop,
+		},
+		{
+			"user manager, desktop portal (the bulk of a real session journal)",
+			event.Event{Source: "systemd", Unit: "user@1000.service", Fields: map[string]string{"USER_UNIT": "xdg-desktop-portal.service"}, Message: "Dependency failed for Portal service."},
+			event.CategoryDesktop,
+		},
+		{
+			"user manager, settings and thumbnail services",
+			event.Event{Source: "systemd", Unit: "user@1000.service", Fields: map[string]string{"USER_UNIT": "xfconfd.service"}, Message: "Started Xfce configuration service."},
+			event.CategoryDesktop,
+		},
+		{
+			"user manager, thumbnailer",
+			event.Event{Source: "systemd", Unit: "user@1000.service", Fields: map[string]string{"USER_UNIT": "tumblerd.service"}, Message: "Started Thumbnailing service."},
+			event.CategoryDesktop,
+		},
+		{
+			"user manager, dconf settings backend",
+			event.Event{Source: "systemd", Unit: "user@1000.service", Fields: map[string]string{"USER_UNIT": "dconf.service"}, Message: "Started User preferences database."},
+			event.CategoryDesktop,
+		},
+		{
+			"user manager, tmpfiles is systemd plumbing with no domain subject",
+			event.Event{Source: "systemd", Unit: "user@1000.service", Fields: map[string]string{"USER_UNIT": "systemd-tmpfiles-clean.service"}, Message: "Finished Cleanup of User's Temporary Files and Directories."},
+			event.CategorySystemd,
+		},
+		{
+			"user manager, generic milestone has no domain subject",
+			event.Event{Source: "systemd", Unit: "user@1000.service", Fields: map[string]string{"_SYSTEMD_USER_UNIT": "init.scope"}, Message: "Reached target Paths."},
+			event.CategorySystemd,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Classify(tc.e); got != tc.want {
+				t.Errorf("Classify() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Event shapes taken from a real user-session journal: every line carries the
+// user manager as emitting unit, so the source identifier and the user unit
+// must do the work.
+func TestClassifyRealUserSessionSources(t *testing.T) {
+	user := func(source, userUnit string) event.Event {
+		e := event.Event{Source: source, Unit: "user@1000.service", Fields: map[string]string{}}
+		if userUnit != "" {
+			e.Fields["_SYSTEMD_USER_UNIT"] = userUnit
+		}
+		return e
+	}
+	cases := []struct {
+		e    event.Event
+		want event.Category
+	}{
+		{user("xfce4-screensaver-dialog", "dbus-:1.2-org.xfce.ScreenSaver@0.service"), event.CategoryDesktop},
+		{user("xfce4-notifyd", ""), event.CategoryDesktop},
+		{user("gcr-prompter", "dbus-:1.2-org.gnome.keyring.SystemPrompter@0.service"), event.CategoryDesktop},
+		{user("gnome-keyring-daemon", ""), event.CategoryDesktop},
+		{user("at-spi2-registryd", "dbus-:1.9-org.a11y.atspi.Registry@0.service"), event.CategoryDesktop},
+		{user("wireplumber", "wireplumber.service"), event.CategoryDesktop},
+		{user("gvfsd", ""), event.CategoryDesktop},
+		{user("dbus-broker-launch", "dbus-broker.service"), event.CategoryOther},
+		{user("dbus-broker", "dbus-broker.service"), event.CategoryOther},
+		// Recognised only by what we can state reliably: an application we know
+		// nothing about must stay unclassified, not inherit the user manager.
+		{user("qemu-system-x86", ""), event.CategoryUnclassified},
+		{user("obexd", ""), event.CategoryUnclassified},
+	}
+	for _, tc := range cases {
+		if got := Classify(tc.e); got != tc.want {
+			t.Errorf("source %q: Classify() = %q, want %q", tc.e.Source, got, tc.want)
 		}
 	}
 }

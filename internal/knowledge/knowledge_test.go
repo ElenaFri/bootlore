@@ -184,6 +184,27 @@ func TestForMatchesKnownBootMessages(t *testing.T) {
 	}
 }
 
+// On a real journal every event carries the unit that *hosts* its process
+// (user@1000.service, session-3.scope, ...). That must not make an arbitrary
+// application's "Starting..." or "Failed with result" read as a systemd unit
+// event: only systemd's own messages are explained as such. Found by running
+// BootLore on a real journal.
+func TestApplicationMessagesAreNotSystemdEvents(t *testing.T) {
+	for _, msg := range []string{
+		"Starting up the rendering engine",
+		"Started recording",
+		"Finished writing cache",
+		"Failed to start audio backend",
+		"transcode: Failed with result 'timeout'",
+		"Mounted overlay",
+	} {
+		e := event.Event{Source: "some-app", Unit: "user@1000.service", Message: msg}
+		if entry, ok := For(e); ok {
+			t.Errorf("application message %q matched systemd entry %q", msg, entry.ID)
+		}
+	}
+}
+
 // Transparency principle (architecture §2.3): the failure entry must clearly
 // separate the established fact from the cause, which is not stated by the
 // message and requires investigation.

@@ -250,10 +250,13 @@ func All() []Entry {
 	return out
 }
 
-// fromSystemd reports whether the event plausibly comes from systemd itself:
-// either identified as such, or attached to a unit.
+// fromSystemd reports whether the event was emitted by the systemd manager
+// itself. Merely running inside a systemd unit is not enough: on a real journal
+// every process's messages carry the unit that hosts it (user@1000.service,
+// session-3.scope, ...), so an application's "Starting..." must not be read as a
+// systemd unit lifecycle event.
 func fromSystemd(e event.Event, _ string) bool {
-	return strings.EqualFold(e.Source, "systemd") || e.Unit != ""
+	return strings.EqualFold(e.Source, "systemd")
 }
 
 func containsAny(patterns ...string) matchFunc {

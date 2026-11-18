@@ -272,8 +272,11 @@ func TestCollectViewHuman(t *testing.T) {
 	if res.code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
 	}
-	if !strings.Contains(res.stdout, "[normal] NETWORK: A systemd unit changed state as part of the boot sequence.") {
-		t.Errorf("stdout should contain the interpreted NetworkManager line:\n%s", res.stdout)
+	// This line is emitted by NetworkManager itself, not by systemd: it is
+	// classified NETWORK but is not explained as a systemd unit lifecycle event,
+	// so the HUMAN view falls back to the original message.
+	if !strings.Contains(res.stdout, "[normal] NETWORK: Started Network Manager.") {
+		t.Errorf("stdout should contain the NetworkManager line, classified but not mis-explained:\n%s", res.stdout)
 	}
 	if !strings.Contains(res.stdout, "[failure] SYSTEMD: A unit reported a failure.") {
 		t.Errorf("stdout should contain the interpreted bluetooth failure line:\n%s", res.stdout)
@@ -361,6 +364,32 @@ func TestCategoryFilterEndToEnd(t *testing.T) {
 	res = runBootlore(t, "", "errors", "--category", "network", "--input", fixturePath)
 	if !strings.Contains(res.stdout, "No warnings or failures found.") {
 		t.Errorf("no network failure in the fixture:\n%s", res.stdout)
+	}
+}
+
+// On a user-session journal (every entry hosted by user@1000.service) the
+// subsystems must still be told apart, end to end through the real binary.
+func TestCategoryFilterOnUserSessionJournal(t *testing.T) {
+	session := filepath.Join(moduleRoot, "test", "testdata", "user-session-journal.json")
+
+	res := runBootlore(t, "", "collect", "--category", "desktop", "--input", session)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if got := len(nonEmptyLines(res.stdout)); got != 3 {
+		t.Errorf("--category desktop should keep the 3 desktop events (audio session, portal, keyring), got %d:\n%s", got, res.stdout)
+	}
+
+	res = runBootlore(t, "", "collect", "--category", "unclassified", "--input", session)
+	lines := nonEmptyLines(res.stdout)
+	if len(lines) != 1 || !strings.Contains(lines[0], "TensorFlow Lite") {
+		t.Errorf("--category unclassified should show only the unknown application:\n%s", res.stdout)
+	}
+
+	// The portal failure is a desktop failure, not a systemd one.
+	res = runBootlore(t, "", "errors", "--category", "desktop", "--input", session)
+	if !strings.Contains(res.stdout, "[failure] DESKTOP:") {
+		t.Errorf("errors --category desktop should report the portal failure:\n%s", res.stdout)
 	}
 }
 
