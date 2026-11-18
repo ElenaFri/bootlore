@@ -315,6 +315,39 @@ func TestExplainBadLevelFails(t *testing.T) {
 	}
 }
 
+// The timeline must place every fixture event at its monotonic offset since
+// boot, in chronological order, in the HUMAN view.
+func TestTimelineCommand(t *testing.T) {
+	res := runBootlore(t, "", "timeline", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	lines := nonEmptyLines(res.stdout)
+	if len(lines) != 5 {
+		t.Fatalf("got %d lines, want 5:\n%s", len(lines), res.stdout)
+	}
+	if !strings.Contains(lines[0], "+1.200s [normal] KERNEL: The Linux kernel is starting and reports its version.") {
+		t.Errorf("first line = %q", lines[0])
+	}
+	if !strings.Contains(lines[4], "+6.000s [failure] SYSTEMD: A unit reported a failure.") {
+		t.Errorf("last line = %q", lines[4])
+	}
+	// Offsets must be printed in ascending order.
+	if i, j := strings.Index(res.stdout, "+1.200s"), strings.Index(res.stdout, "+6.000s"); i > j {
+		t.Errorf("timeline is not chronological: +1.200s at %d, +6.000s at %d", i, j)
+	}
+}
+
+func TestTimelineViewLog(t *testing.T) {
+	res := runBootlore(t, "", "timeline", "--view", "log", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "+4.800s [info] NetworkManager[412]: Started Network Manager.") {
+		t.Errorf("log timeline should show original messages with offsets:\n%s", res.stdout)
+	}
+}
+
 // --- errors command / live view (end-to-end) ---
 
 func TestErrorsCommand(t *testing.T) {

@@ -300,9 +300,57 @@ func TestErrorsBackendUnavailableShowsHint(t *testing.T) {
 	}
 }
 
+// --- timeline command ---
+
+const shuffledMonotonic = `{"__MONOTONIC_TIMESTAMP":"2000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"third"}
+{"__MONOTONIC_TIMESTAMP":"500000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"first"}
+{"__MONOTONIC_TIMESTAMP":"1200000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"second"}`
+
+// The timeline must order events by their monotonic time since boot, not by
+// their order of arrival in the stream.
+func TestTimelineSortedByMonotonic(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"timeline"}, strings.NewReader(shuffledMonotonic), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	assertLines(t, stdout,
+		"+0.500s [normal] SYSTEMD: first",
+		"+1.200s [normal] SYSTEMD: second",
+		"+2.000s [normal] SYSTEMD: third")
+}
+
+// When monotonic timestamps are missing, ordering falls back to wall-clock
+// time (defensive sort — the real journal always provides monotonic values).
+func TestTimelineFallbackToWallClock(t *testing.T) {
+	in := `{"__REALTIME_TIMESTAMP":"1700000002000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"late"}
+{"__REALTIME_TIMESTAMP":"1700000001000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"early"}`
+	stdout, stderr, code := runCLI([]string{"timeline"}, strings.NewReader(in), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	assertLines(t, stdout,
+		"- [normal] SYSTEMD: early",
+		"- [normal] SYSTEMD: late")
+}
+
+func TestTimelineViewLog(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"timeline", "--view", "log"}, strings.NewReader(nmEntry), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	assertLines(t, stdout, "+1.200s [info] systemd[1]: Started Network Manager.")
+}
+
+func TestTimelineViewInvalidFails(t *testing.T) {
+	_, _, code := runCLI([]string{"timeline", "--view", "bogus"}, strings.NewReader(nmEntry), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+}
+
 // --- HUMAN view (--view human) ---
 
-const nmEntry = `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","_SYSTEMD_UNIT":"NetworkManager.service","MESSAGE":"Started Network Manager."}`
+const nmEntry = `{"__REALTIME_TIMESTAMP":"1700000000000000","__MONOTONIC_TIMESTAMP":"1200000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","_SYSTEMD_UNIT":"NetworkManager.service","MESSAGE":"Started Network Manager."}`
 
 func TestCollectViewHuman(t *testing.T) {
 	stdout, stderr, code := runCLI([]string{"collect", "--view", "human"}, strings.NewReader(nmEntry), &collectortest.FakeRunner{})

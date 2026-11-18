@@ -27,6 +27,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 
 	"github.com/ElenaFri/bootlore/internal/collector"
@@ -67,6 +68,8 @@ func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collec
 		return cmdExplain(args[1:], stdin, stdout, stderr, c)
 	case "errors":
 		return cmdErrors(args[1:], stdin, stdout, stderr, c)
+	case "timeline":
+		return cmdTimeline(args[1:], stdin, stdout, stderr, c)
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "bootlore %s\n", version)
 		return 0
@@ -89,6 +92,7 @@ Usage:
 Commands:
   collect    Print the LOG view of a boot (from journald, a file or stdin)
   live       Replay the current boot, then follow new events live (Ctrl-C stops)
+  timeline   Show the boot as a chronological timeline (+offsets since boot)
   explain    Print the HUMAN view with contextual, educational explanations
   errors     Print only warnings and failures (HUMAN view by default)
   version    Print the BootLore version
@@ -110,10 +114,17 @@ explain flags:
   --input FILE     read captured journal JSON (journalctl -o json) from FILE
   --level L        explanation depth: overview, technical (default) or in-depth
 
+timeline flags:
+  --journal        read directly from the system journal (journalctl)
+  --boot OFFSET    which boot to read (default: current)
+  --input FILE     read captured journal JSON (journalctl -o json) from FILE
+  --view V         event view: human (default) or log
+
 Examples:
   bootlore collect
   bootlore collect --boot -1 --view human
   bootlore live
+  bootlore timeline
   bootlore explain --level in-depth
   bootlore errors
   journalctl -b -o json | bootlore collect
@@ -231,6 +242,71 @@ func cmdErrors(args []string, stdin io.Reader, stdout, stderr io.Writer, c *coll
 		fmt.Fprintln(out, "No warnings or failures found.")
 	}
 	return 0
+}
+
+// cmdTimeline shows a boot as a chronological timeline: every event is placed
+// at its monotonic offset since boot (+1.200s), ordered chronologically. It
+// defaults to the HUMAN view, like errors: both are diagnostic readings.
+func cmdTimeline(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
+	fs := flag.NewFlagSet("timeline", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	input := fs.String("input", "", "read journal JSON (journalctl -o json) from this file")
+	fromJournal := fs.Bool("journal", false, "read directly from the system journal (journalctl)")
+	boot := fs.String("boot", "", "boot to read as a journalctl -b offset (default current boot)")
+	view := fs.String("view", "human", "event view: human (default) or log")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	body, err := bodyRenderer(*view)
+	if err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		return 2
+	}
+
+	events, err := collectEvents(*input, *fromJournal, *boot, stdin, c)
+	if err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		if errors.Is(err, collector.ErrBackendUnavailable) {
+			fmt.Fprintln(stderr, "hint: pipe journal data instead, e.g. `journalctl -b -o json | bootlore timeline`")
+		}
+		return 1
+	}
+
+	sort.SliceStable(events, func(i, j int) bool {
+		return timelineOrdered(events[i], events[j])
+	})
+
+	out := bufio.NewWriter(stdout)
+	defer out.Flush()
+	for _, ev := range events {
+		e := interpret.Interpret(ev)
+		fmt.Fprintln(out, render.TimelineLine(e, body))
+	}
+	return 0
+}
+
+// bodyRenderer maps a --view value onto the body rendering function used by the
+// timeline view (which prints its own prefix). The empty value means the
+// default (log).
+func bodyRenderer(view string) (func(event.Event) string, error) {
+	switch view {
+	case "", "log":
+		return render.LogBody, nil
+	case "human":
+		return render.HumanBody, nil
+	default:
+		return nil, fmt.Errorf("unknown view %q (want log or human)", view)
+	}
+}
+
+// timelineOrdered is the defensive chronological ordering of the timeline:
+// monotonic time since boot is preferred (architecture §4.7); wall-clock time
+// is the fallback when either event lacks a monotonic timestamp.
+func timelineOrdered(a, b event.Event) bool {
+	if a.MonotonicTimestamp != 0 && b.MonotonicTimestamp != 0 {
+		return a.MonotonicTimestamp < b.MonotonicTimestamp
+	}
+	return a.RealtimeTimestamp.Before(b.RealtimeTimestamp)
 }
 
 // stdinIsPiped reports whether stdin carries piped data rather than being an
