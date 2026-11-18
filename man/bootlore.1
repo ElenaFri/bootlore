@@ -47,6 +47,11 @@ offset:
 .B \-1
 (previous), and so on.
 .TP
+.BI \-\-category= LIST
+Keep only events of the given subsystems.
+See
+.BR FILTERING .
+.TP
 .BI \-\-view= VIEW
 Event view:
 .B log
@@ -60,6 +65,11 @@ Stops cleanly on SIGINT/SIGTERM.
 .BI \-\-boot= OFFSET
 Which boot to watch (default: current).
 .TP
+.BI \-\-category= LIST
+Keep only events of the given subsystems.
+See
+.BR FILTERING .
+.TP
 .BI \-\-view= VIEW
 log (default) or human.
 .SS timeline
@@ -68,8 +78,8 @@ monotonic offset since boot (for example
 .BR +1.200s ),
 ordered chronologically.
 .TP
-.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET
-Same sources and boot selection as
+.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET ", " \-\-category= LIST
+Same sources, boot selection and category filter as
 .BR collect .
 .TP
 .BI \-\-view= VIEW
@@ -86,8 +96,8 @@ one, at the requested depth:
 Events without a known explanation are still listed; BootLore never invents
 causes.
 .TP
-.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET
-Same sources and boot selection as
+.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET ", " \-\-category= LIST
+Same sources, boot selection and category filter as
 .BR collect .
 .TP
 .BI \-\-level= LEVEL
@@ -96,8 +106,8 @@ overview, technical (default) or in\-depth.
 Print only noteworthy events: warnings and failures. Defaults to the human
 view; prints an explicit notice when nothing noteworthy is found.
 .TP
-.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET
-Same sources and boot selection as
+.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET ", " \-\-category= LIST
+Same sources, boot selection and category filter as
 .BR collect .
 .TP
 .BI \-\-view= VIEW
@@ -112,6 +122,29 @@ first, then piped standard input, then the system journal. In a terminal,
 therefore reads the current boot from journald without further flags;
 .B \-\-journal
 forces the journal even when stdin is piped.
+.SH FILTERING
+.B \-\-category
+takes a comma\-separated list of subsystems, case\-insensitive, and keeps only
+the events BootLore classified into one of them:
+.BR kernel ,
+.BR hardware ,
+.BR storage ,
+.BR network ,
+.BR systemd ,
+.BR security ,
+.BR desktop
+and
+.BR other .
+The special name
+.B unclassified
+selects the events BootLore could not classify, which shows exactly what its
+classification does not cover.
+.PP
+Filters compose: with
+.BR errors ,
+.B \-\-category
+narrows the warnings and failures to the requested subsystems. An unknown name
+is a usage error and lists the valid ones.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -122,7 +155,7 @@ Runtime failure: journal backend missing or failed, or malformed input.
 A hint is printed on standard error when journalctl is unavailable.
 .TP
 .B 2
-Usage error: unknown command, unknown flag, invalid view or level.
+Usage error: unknown command, unknown flag, invalid view, level or category.
 .SH EXAMPLES
 .PP
 Read the current boot from the journal, as readable descriptions:
@@ -133,19 +166,19 @@ bootlore collect \-\-view human
 .fi
 .RE
 .PP
-Follow the boot live, with original messages:
+Follow only the network events as they happen:
 .PP
 .RS
 .nf
-bootlore live
+bootlore live \-\-category network
 .fi
 .RE
 .PP
-See what the previous boot got wrong:
+See what the previous boot got wrong in storage and hardware:
 .PP
 .RS
 .nf
-bootlore errors \-\-boot \-1
+bootlore errors \-\-boot \-1 \-\-category storage,hardware
 .fi
 .RE
 .PP

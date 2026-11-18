@@ -300,6 +300,109 @@ func TestErrorsBackendUnavailableShowsHint(t *testing.T) {
 	}
 }
 
+// --- --category filtering ---
+
+// mixedEntries holds one NETWORK event, one SYSTEMD failure and one event BootLore
+// cannot classify.
+const mixedEntries = nmEntry + "\n" + failureEntry + "\n" + opaqueEntry
+
+func TestCollectCategoryFilter(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"collect", "--category", "network"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	assertLines(t, stdout, "Started Network Manager.")
+}
+
+func TestCollectCategoryFilterMultiple(t *testing.T) {
+	stdout, _, code := runCLI([]string{"collect", "--category", "network,systemd"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	assertLines(t, stdout, "Started Network Manager.", "Failed with result")
+}
+
+// The "unclassified" pseudo-category shows exactly what BootLore could not
+// classify.
+func TestCollectCategoryUnclassified(t *testing.T) {
+	stdout, _, code := runCLI([]string{"collect", "--category", "unclassified"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	assertLines(t, stdout, "opaque daemon thing")
+}
+
+func TestCollectCategoryNoMatchPrintsNothing(t *testing.T) {
+	stdout, _, code := runCLI([]string{"collect", "--category", "kernel"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty", stdout)
+	}
+}
+
+func TestCategoryInvalidFailsWithValidNames(t *testing.T) {
+	for _, cmd := range []string{"collect", "timeline", "explain", "errors", "live"} {
+		_, stderr, code := runCLI([]string{cmd, "--category", "bogus"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+		if code != 2 {
+			t.Errorf("%s --category bogus: exit code = %d, want 2", cmd, code)
+		}
+		if !strings.Contains(stderr, "valid:") || !strings.Contains(stderr, "network") {
+			t.Errorf("%s --category bogus: stderr should list valid categories, got %q", cmd, stderr)
+		}
+	}
+}
+
+func TestTimelineCategoryFilter(t *testing.T) {
+	stdout, _, code := runCLI([]string{"timeline", "--category", "systemd"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	assertLines(t, stdout, "[failure] SYSTEMD: A unit reported a failure.")
+}
+
+func TestExplainCategoryFilter(t *testing.T) {
+	stdout, _, code := runCLI([]string{"explain", "--category", "network"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	// One event line plus its explanation line; the other two events are gone.
+	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2:\n%s", len(lines), stdout)
+	}
+	if !strings.Contains(lines[0], "NETWORK:") {
+		t.Errorf("first line = %q", lines[0])
+	}
+}
+
+// Filters compose: errors keeps only warnings/failures, --category narrows
+// further. A network filter over a boot whose only failure is a systemd one
+// finds nothing noteworthy.
+func TestErrorsCategoryFilterComposes(t *testing.T) {
+	stdout, _, code := runCLI([]string{"errors", "--category", "network"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout, "No warnings or failures found.") {
+		t.Errorf("stdout = %q, want the nothing-found notice", stdout)
+	}
+
+	stdout, _, _ = runCLI([]string{"errors", "--category", "systemd"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if !strings.Contains(stdout, "[failure] SYSTEMD:") {
+		t.Errorf("stdout = %q, want the systemd failure", stdout)
+	}
+}
+
+func TestLiveCategoryFilter(t *testing.T) {
+	stdout, stderr, code := liveCLI([]string{"live", "--category", "network"}, nmEntry+"\n"+failureEntry, opaqueEntry)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	assertLines(t, stdout, "Started Network Manager.")
+}
+
 // --- timeline command ---
 
 const shuffledMonotonic = `{"__MONOTONIC_TIMESTAMP":"2000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"third"}

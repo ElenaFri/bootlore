@@ -2,8 +2,8 @@
 // observer. It turns systemd journal data into a readable account of system
 // startup.
 //
-// The first implemented subcommand is "collect", which produces a chronological
-// LOG view of a boot. It reads events from, in order of preference:
+// Commands that read a boot (collect, timeline, explain, errors) take their
+// events from, in order of preference:
 //
 //   - a captured export file (--input FILE);
 //   - standard input, when journal JSON is piped in;
@@ -32,6 +32,7 @@ import (
 
 	"github.com/ElenaFri/bootlore/internal/collector"
 	"github.com/ElenaFri/bootlore/internal/event"
+	"github.com/ElenaFri/bootlore/internal/filter"
 	"github.com/ElenaFri/bootlore/internal/interpret"
 	"github.com/ElenaFri/bootlore/internal/journal"
 	"github.com/ElenaFri/bootlore/internal/knowledge"
@@ -98,46 +99,92 @@ Commands:
   version    Print the BootLore version
   help       Show this help
 
-collect flags:
+flags shared by collect, timeline, explain and errors:
   --journal        read directly from the system journal (journalctl)
   --boot OFFSET    which boot to read: 0 (current, default), -1 (previous), ...
   --input FILE     read captured journal JSON (journalctl -o json) from FILE
+  --category LIST  only these subsystems, comma-separated: kernel, hardware,
+                   storage, network, systemd, security, desktop, other,
+                   unclassified
+
+collect flags:
   --view V         event view: log (default, original messages) or human
 
 live flags:
   --boot OFFSET    which boot to watch (default: current)
   --view V         event view: log (default) or human
+  --category LIST  only these subsystems (see above)
+
+timeline and errors flags:
+  --view V         event view: human (default) or log
 
 explain flags:
-  --journal        read directly from the system journal (journalctl)
-  --boot OFFSET    which boot to read (default: current)
-  --input FILE     read captured journal JSON (journalctl -o json) from FILE
   --level L        explanation depth: overview, technical (default) or in-depth
-
-timeline flags:
-  --journal        read directly from the system journal (journalctl)
-  --boot OFFSET    which boot to read (default: current)
-  --input FILE     read captured journal JSON (journalctl -o json) from FILE
-  --view V         event view: human (default) or log
 
 Examples:
   bootlore collect
   bootlore collect --boot -1 --view human
-  bootlore live
+  bootlore live --category network
   bootlore timeline
   bootlore explain --level in-depth
-  bootlore errors
+  bootlore errors --category storage,hardware
   journalctl -b -o json | bootlore collect
   bootlore collect --input boot.json
 `)
 }
 
+// readFlags holds the flags shared by the commands that read a whole boot:
+// where the events come from, and which subsystems to keep.
+type readFlags struct {
+	input       *string
+	fromJournal *bool
+	boot        *string
+	category    *string
+}
+
+// newReadFlags registers the shared source and filter flags on fs.
+func newReadFlags(fs *flag.FlagSet) *readFlags {
+	return &readFlags{
+		input:       fs.String("input", "", "read journal JSON (journalctl -o json) from this file"),
+		fromJournal: fs.Bool("journal", false, "read directly from the system journal (journalctl)"),
+		boot:        fs.String("boot", "", "boot to read as a journalctl -b offset (default current boot)"),
+		category:    fs.String("category", "", "only these subsystems, comma-separated (default: all)"),
+	}
+}
+
+// events reads the boot, interprets every event and keeps those that pass the
+// --category filter. On failure it reports the problem (with a hint when the
+// journal backend is unavailable) on stderr and returns the exit code to use:
+// 2 for a usage error (bad --category), 1 for a runtime failure.
+func (r *readFlags) events(cmd string, stdin io.Reader, stderr io.Writer, c *collector.Collector) (events []event.Event, code int, ok bool) {
+	flt, err := filter.ParseCategories(*r.category)
+	if err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		return nil, 2, false
+	}
+
+	raw, err := collectEvents(*r.input, *r.fromJournal, *r.boot, stdin, c)
+	if err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		if errors.Is(err, collector.ErrBackendUnavailable) {
+			fmt.Fprintf(stderr, "hint: pipe journal data instead, e.g. `journalctl -b -o json | bootlore %s`\n", cmd)
+		}
+		return nil, 1, false
+	}
+
+	for _, ev := range raw {
+		e := interpret.Interpret(ev)
+		if flt.Match(e) {
+			events = append(events, e)
+		}
+	}
+	return events, 0, true
+}
+
 func cmdCollect(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
 	fs := flag.NewFlagSet("collect", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	input := fs.String("input", "", "read journal JSON (journalctl -o json) from this file")
-	fromJournal := fs.Bool("journal", false, "read directly from the system journal (journalctl)")
-	boot := fs.String("boot", "", "boot to read as a journalctl -b offset (default current boot)")
+	read := newReadFlags(fs)
 	view := fs.String("view", "log", "event view: log or human")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -148,19 +195,15 @@ func cmdCollect(args []string, stdin io.Reader, stdout, stderr io.Writer, c *col
 		return 2
 	}
 
-	events, err := collectEvents(*input, *fromJournal, *boot, stdin, c)
-	if err != nil {
-		fmt.Fprintf(stderr, "bootlore: %v\n", err)
-		if errors.Is(err, collector.ErrBackendUnavailable) {
-			fmt.Fprintln(stderr, "hint: pipe journal data instead, e.g. `journalctl -b -o json | bootlore collect`")
-		}
-		return 1
+	events, code, ok := read.events("collect", stdin, stderr, c)
+	if !ok {
+		return code
 	}
 
 	out := bufio.NewWriter(stdout)
 	defer out.Flush()
 	for _, e := range events {
-		fmt.Fprintln(out, line(interpret.Interpret(e)))
+		fmt.Fprintln(out, line(e))
 	}
 	return 0
 }
@@ -205,9 +248,7 @@ func collectEvents(input string, fromJournal bool, boot string, stdin io.Reader,
 func cmdErrors(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
 	fs := flag.NewFlagSet("errors", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	input := fs.String("input", "", "read journal JSON (journalctl -o json) from this file")
-	fromJournal := fs.Bool("journal", false, "read directly from the system journal (journalctl)")
-	boot := fs.String("boot", "", "boot to read as a journalctl -b offset (default current boot)")
+	read := newReadFlags(fs)
 	view := fs.String("view", "human", "event view: human (default) or log")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -218,20 +259,15 @@ func cmdErrors(args []string, stdin io.Reader, stdout, stderr io.Writer, c *coll
 		return 2
 	}
 
-	events, err := collectEvents(*input, *fromJournal, *boot, stdin, c)
-	if err != nil {
-		fmt.Fprintf(stderr, "bootlore: %v\n", err)
-		if errors.Is(err, collector.ErrBackendUnavailable) {
-			fmt.Fprintln(stderr, "hint: pipe journal data instead, e.g. `journalctl -b -o json | bootlore errors`")
-		}
-		return 1
+	events, code, ok := read.events("errors", stdin, stderr, c)
+	if !ok {
+		return code
 	}
 
 	out := bufio.NewWriter(stdout)
 	defer out.Flush()
 	found := 0
-	for _, ev := range events {
-		e := interpret.Interpret(ev)
+	for _, e := range events {
 		if !e.Significance.IsNoteworthy() {
 			continue
 		}
@@ -250,9 +286,7 @@ func cmdErrors(args []string, stdin io.Reader, stdout, stderr io.Writer, c *coll
 func cmdTimeline(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
 	fs := flag.NewFlagSet("timeline", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	input := fs.String("input", "", "read journal JSON (journalctl -o json) from this file")
-	fromJournal := fs.Bool("journal", false, "read directly from the system journal (journalctl)")
-	boot := fs.String("boot", "", "boot to read as a journalctl -b offset (default current boot)")
+	read := newReadFlags(fs)
 	view := fs.String("view", "human", "event view: human (default) or log")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -263,13 +297,9 @@ func cmdTimeline(args []string, stdin io.Reader, stdout, stderr io.Writer, c *co
 		return 2
 	}
 
-	events, err := collectEvents(*input, *fromJournal, *boot, stdin, c)
-	if err != nil {
-		fmt.Fprintf(stderr, "bootlore: %v\n", err)
-		if errors.Is(err, collector.ErrBackendUnavailable) {
-			fmt.Fprintln(stderr, "hint: pipe journal data instead, e.g. `journalctl -b -o json | bootlore timeline`")
-		}
-		return 1
+	events, code, ok := read.events("timeline", stdin, stderr, c)
+	if !ok {
+		return code
 	}
 
 	sort.SliceStable(events, func(i, j int) bool {
@@ -278,8 +308,7 @@ func cmdTimeline(args []string, stdin io.Reader, stdout, stderr io.Writer, c *co
 
 	out := bufio.NewWriter(stdout)
 	defer out.Flush()
-	for _, ev := range events {
-		e := interpret.Interpret(ev)
+	for _, e := range events {
 		fmt.Fprintln(out, render.TimelineLine(e, body))
 	}
 	return 0
@@ -331,10 +360,16 @@ func cmdLive(args []string, stdout, stderr io.Writer, c *collector.Collector) in
 	fs.SetOutput(stderr)
 	boot := fs.String("boot", "", "boot to watch as a journalctl -b offset (default current boot)")
 	view := fs.String("view", "log", "event view: log or human")
+	category := fs.String("category", "", "only these subsystems, comma-separated (default: all)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	line, err := viewRenderer(*view)
+	if err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		return 2
+	}
+	flt, err := filter.ParseCategories(*category)
 	if err != nil {
 		fmt.Fprintf(stderr, "bootlore: %v\n", err)
 		return 2
@@ -345,7 +380,11 @@ func cmdLive(args []string, stdout, stderr io.Writer, c *collector.Collector) in
 
 	out := bufio.NewWriter(stdout)
 	err = c.Watch(ctx, collector.Options{Boot: *boot}, func(ev event.Event) error {
-		fmt.Fprintln(out, line(interpret.Interpret(ev)))
+		e := interpret.Interpret(ev)
+		if !flt.Match(e) {
+			return nil
+		}
+		fmt.Fprintln(out, line(e))
 		// Flush per event: live output must appear as it happens, not in
 		// batches when the process eventually exits.
 		return out.Flush()
@@ -367,9 +406,7 @@ func cmdLive(args []string, stdout, stderr io.Writer, c *collector.Collector) in
 func cmdExplain(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
 	fs := flag.NewFlagSet("explain", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	input := fs.String("input", "", "read journal JSON (journalctl -o json) from this file")
-	fromJournal := fs.Bool("journal", false, "read directly from the system journal (journalctl)")
-	boot := fs.String("boot", "", "boot to read as a journalctl -b offset (default current boot)")
+	read := newReadFlags(fs)
 	levelName := fs.String("level", "technical", "explanation depth: overview, technical or in-depth")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -380,19 +417,14 @@ func cmdExplain(args []string, stdin io.Reader, stdout, stderr io.Writer, c *col
 		return 2
 	}
 
-	events, err := collectEvents(*input, *fromJournal, *boot, stdin, c)
-	if err != nil {
-		fmt.Fprintf(stderr, "bootlore: %v\n", err)
-		if errors.Is(err, collector.ErrBackendUnavailable) {
-			fmt.Fprintln(stderr, "hint: pipe journal data instead, e.g. `journalctl -b -o json | bootlore explain`")
-		}
-		return 1
+	events, code, ok := read.events("explain", stdin, stderr, c)
+	if !ok {
+		return code
 	}
 
 	out := bufio.NewWriter(stdout)
 	defer out.Flush()
-	for _, ev := range events {
-		e := interpret.Interpret(ev)
+	for _, e := range events {
 		fmt.Fprintln(out, render.HumanLine(e))
 		if entry, ok := knowledge.For(e); ok {
 			if text := entry.Text(level); text != "" {

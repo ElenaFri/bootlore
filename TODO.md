@@ -23,7 +23,7 @@
 - [x] Implement the command-line interface (`collect`, `live`, `explain`, `errors`, with LOG/HUMAN views and explanation levels)
 - [ ] Build a terminal-based real-time boot monitor
 - [x] Display a chronological event timeline (`timeline`: monotonic offsets since boot, chronological order)
-- [ ] Add event filtering and navigation (`errors` already filters warnings/failures)
+- [x] Add event filtering and navigation (filtering done: `--category` on every command, `errors` for warnings/failures; navigation belongs to the TUI)
 - [ ] Provide detailed event inspection
 - [ ] Support small terminal sizes and monochrome output
 

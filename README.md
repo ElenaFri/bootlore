@@ -37,7 +37,11 @@ Most commands accept the same sources — `--input FILE` (a `journalctl -o json`
 export), piped stdin (`journalctl -b -o json | bootlore collect`), or the system
 journal directly (the default in a terminal; `--journal` forces it) — and the
 same views: `--view log` (faithful original messages, by default) or
-`--view human` (BootLore's interpretation).
+`--view human` (BootLore's interpretation). `--category network,storage` keeps
+only the events of the given subsystems (`kernel`, `hardware`, `storage`,
+`network`, `systemd`, `security`, `desktop`, `other`, or `unclassified` to see
+what BootLore could not classify); it composes with every command, e.g. with
+`errors`.
 
 ```sh
 # Read the current boot straight from the system journal (LOG view)
@@ -57,6 +61,9 @@ same views: `--view log` (faithful original messages, by default) or
 
 # Focus on what went wrong: warnings and failures only
 ./bin/bootlore errors
+
+# ...narrowed to a subsystem
+./bin/bootlore errors --category storage,hardware
 
 # Previous boot, raw messages
 ./bin/bootlore collect --boot -1

@@ -338,6 +338,42 @@ func TestTimelineCommand(t *testing.T) {
 	}
 }
 
+// --category must narrow every reading command, end to end on the shared
+// fixture (kernel x2 -> one is storage, systemd, network, a systemd failure).
+func TestCategoryFilterEndToEnd(t *testing.T) {
+	res := runBootlore(t, "", "collect", "--category", "network", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	lines := nonEmptyLines(res.stdout)
+	if len(lines) != 1 || !strings.Contains(lines[0], "Started Network Manager.") {
+		t.Errorf("--category network should keep only the NetworkManager line:\n%s", res.stdout)
+	}
+
+	res = runBootlore(t, "", "timeline", "--category", "kernel,storage", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if got := len(nonEmptyLines(res.stdout)); got != 2 {
+		t.Errorf("--category kernel,storage should keep 2 timeline lines, got %d:\n%s", got, res.stdout)
+	}
+
+	res = runBootlore(t, "", "errors", "--category", "network", "--input", fixturePath)
+	if !strings.Contains(res.stdout, "No warnings or failures found.") {
+		t.Errorf("no network failure in the fixture:\n%s", res.stdout)
+	}
+}
+
+func TestCategoryInvalidEndToEnd(t *testing.T) {
+	res := runBootlore(t, "", "collect", "--category", "bogus", "--input", fixturePath)
+	if res.code != 2 {
+		t.Fatalf("exit code = %d, want 2", res.code)
+	}
+	if !strings.Contains(res.stderr, "valid:") {
+		t.Errorf("stderr should list the valid categories: %q", res.stderr)
+	}
+}
+
 func TestTimelineViewLog(t *testing.T) {
 	res := runBootlore(t, "", "timeline", "--view", "log", "--input", fixturePath)
 	if res.code != 0 {
