@@ -264,3 +264,53 @@ func TestLiveBadFlagFails(t *testing.T) {
 		t.Errorf("exit code = %d, want 2", res.code)
 	}
 }
+
+// --- HUMAN view and explain (end-to-end against the shared fixture) ---
+
+func TestCollectViewHuman(t *testing.T) {
+	res := runBootlore(t, "", "collect", "--view", "human", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "[normal] NETWORK: A systemd unit changed state as part of the boot sequence.") {
+		t.Errorf("stdout should contain the interpreted NetworkManager line:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "[failure] SYSTEMD: A unit reported a failure.") {
+		t.Errorf("stdout should contain the interpreted bluetooth failure line:\n%s", res.stdout)
+	}
+	// The LOG view stays the default and remains faithful to source data.
+	resLog := runBootlore(t, "", "collect", "--input", fixturePath)
+	if !strings.Contains(resLog.stdout, "bluetooth.service: Failed with result 'exit-code'.") {
+		t.Errorf("default view should print the original message:\n%s", resLog.stdout)
+	}
+}
+
+func TestExplainCommand(t *testing.T) {
+	res := runBootlore(t, "", "explain", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "  The bootloader loaded the kernel image into memory") {
+		t.Errorf("stdout should contain the indented technical explanation for the kernel line:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "[failure] SYSTEMD: A unit reported a failure.") {
+		t.Errorf("stdout should contain the interpreted failure line:\n%s", res.stdout)
+	}
+}
+
+func TestExplainLevelOverview(t *testing.T) {
+	res := runBootlore(t, "", "explain", "--level", "overview", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "  This is one of the very first boot messages") {
+		t.Errorf("stdout should contain the overview-level explanation:\n%s", res.stdout)
+	}
+}
+
+func TestExplainBadLevelFails(t *testing.T) {
+	res := runBootlore(t, "", "explain", "--level", "bogus", "--input", fixturePath)
+	if res.code != 2 {
+		t.Errorf("exit code = %d, want 2", res.code)
+	}
+}

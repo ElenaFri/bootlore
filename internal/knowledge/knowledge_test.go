@@ -40,6 +40,31 @@ func TestEntryTextPerLevel(t *testing.T) {
 	}
 }
 
+// ParseLevel converts a user-facing level name ("overview", "technical",
+// "in-depth") into a Level. Any other input returns an error.
+func TestParseLevel(t *testing.T) {
+	valid := map[string]Level{
+		"overview":  LevelOverview,
+		"technical": LevelTechnical,
+		"in-depth":  LevelInDepth,
+	}
+	for in, want := range valid {
+		got, err := ParseLevel(in)
+		if err != nil {
+			t.Errorf("ParseLevel(%q) returned unexpected error: %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("ParseLevel(%q) = %v, want %v", in, got, want)
+		}
+	}
+	for _, in := range []string{"", "deep", "Overview", "in_depth", "  technical"} {
+		if _, err := ParseLevel(in); err == nil {
+			t.Errorf("ParseLevel(%q) should return an error", in)
+		}
+	}
+}
+
 // The knowledge base is maintained entry by entry: every entry must be complete
 // (all three explanation levels, a summary) and carry a stable ID.
 func TestEntriesAreComplete(t *testing.T) {

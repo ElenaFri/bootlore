@@ -14,6 +14,7 @@
 package knowledge
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -42,6 +43,21 @@ func (l Level) String() string {
 		return name
 	}
 	return "unknown"
+}
+
+// ParseLevel converts a user-facing level name into a Level. Valid names are
+// "overview", "technical" and "in-depth" (case-sensitive).
+func ParseLevel(s string) (Level, error) {
+	switch s {
+	case "overview":
+		return LevelOverview, nil
+	case "technical":
+		return LevelTechnical, nil
+	case "in-depth":
+		return LevelInDepth, nil
+	default:
+		return LevelOverview, fmt.Errorf("knowledge: unknown level %q (want overview, technical or in-depth)", s)
+	}
 }
 
 // Entry is one knowledge base entry about a boot concept.

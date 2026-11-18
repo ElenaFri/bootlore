@@ -217,6 +217,89 @@ func TestLiveBadFlagFails(t *testing.T) {
 	}
 }
 
+// --- HUMAN view (--view human) ---
+
+const nmEntry = `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","_SYSTEMD_UNIT":"NetworkManager.service","MESSAGE":"Started Network Manager."}`
+
+func TestCollectViewHuman(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"collect", "--view", "human"}, strings.NewReader(nmEntry), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	want := "2023-11-14T22:13:20Z [normal] NETWORK: A systemd unit changed state as part of the boot sequence."
+	assertLines(t, stdout, want)
+}
+
+func TestCollectViewInvalidFails(t *testing.T) {
+	_, _, code := runCLI([]string{"collect", "--view", "bogus"}, strings.NewReader(nmEntry), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+}
+
+func TestLiveViewHuman(t *testing.T) {
+	replay := `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Reached target Multi-User System."}`
+	stdout, stderr, code := liveCLI([]string{"live", "--view", "human"}, replay, nmEntry)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	assertLines(t, stdout,
+		"[normal] SYSTEMD: A boot milestone was reached: all units required for this stage are active.",
+		"[normal] NETWORK: A systemd unit changed state as part of the boot sequence.")
+}
+
+// --- explain command ---
+
+const opaqueEntry = `{"MESSAGE":"opaque daemon thing"}`
+
+func TestExplainDefaultLevelIsTechnical(t *testing.T) {
+	in := nmEntry + "\n" + opaqueEntry
+	stdout, stderr, code := runCLI([]string{"explain"}, strings.NewReader(in), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want 3 (two events + one explanation):\n%s", len(lines), stdout)
+	}
+	if !strings.Contains(lines[0], "NETWORK: A systemd unit changed state") {
+		t.Errorf("first line = %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "  systemd executes start jobs in dependency order") {
+		t.Errorf("second line should be the indented technical explanation: %q", lines[1])
+	}
+	if !strings.Contains(lines[2], "opaque daemon thing") {
+		t.Errorf("unexplained event should still be listed: %q", lines[2])
+	}
+}
+
+func TestExplainLevelOverview(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"explain", "--level", "overview"}, strings.NewReader(nmEntry), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "  systemd starts the system piece by piece") {
+		t.Errorf("expected the indented overview explanation:\n%s", stdout)
+	}
+}
+
+func TestExplainLevelInDepth(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"explain", "--level", "in-depth"}, strings.NewReader(nmEntry), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "  What counts as 'started' depends") {
+		t.Errorf("expected the indented in-depth explanation:\n%s", stdout)
+	}
+}
+
+func TestExplainBadLevelFails(t *testing.T) {
+	_, _, code := runCLI([]string{"explain", "--level", "bogus"}, strings.NewReader(nmEntry), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+}
+
 func TestStdinIsPiped(t *testing.T) {
 	if !stdinIsPiped(strings.NewReader("")) {
 		t.Error("strings.Reader should count as piped")
