@@ -54,6 +54,14 @@ Pure logic, no file system, no external processes. Examples:
 make test-unit        # go test -race ./...
 ```
 
+### Documentation tests
+
+`test/docs` keeps the documentation honest: it fails when the man page
+(`man/bootlore.1`) or the README table drift away from the CLI — a missing
+command section, an undocumented flag, non-ASCII roff, or any `groff -ww`
+warning (skipped if groff is absent). When you add a command or flag, update
+the man page and the README; the test will remind you if you forget.
+
 ### Integration tests
 
 Exercise the collector → parser → model → render path across package boundaries,

@@ -1,0 +1,181 @@
+.TH BOOTLORE 1 "November 2026" "bootlore" "User Commands"
+.SH NAME
+bootlore \- a readable observer of Linux boot logs
+.SH SYNOPSIS
+.B bootlore
+.I command
+.RI [ flags ]
+.br
+.B bootlore
+.B help
+|
+.B version
+.SH DESCRIPTION
+.B bootlore
+reads boot\-related events from the systemd journal and turns them into a
+readable, chronological account of system startup.
+It complements (and does not replace) tools like
+.BR journalctl (1),
+.BR dmesg (1)
+and
+.BR systemd\-analyze (1):
+instead of raw logs, it offers interpretation, classification and educational
+explanations.
+.PP
+BootLore is read\-only and non\-intrusive: it never modifies system
+configuration, never requires root, and only sees journal entries the invoking
+user is allowed to read.
+.SH COMMANDS
+.SS collect
+Print a boot's events.
+.TP
+.BI \-\-input= FILE
+Read a captured journal export (as produced by
+.BR "journalctl \-o json" )
+from
+.IR FILE .
+.TP
+.B \-\-journal
+Read directly from the system journal, even when stdin is piped.
+.TP
+.BI \-\-boot= OFFSET
+Which boot to read, as a
+.B journalctl \-b
+offset:
+.B 0
+(current, the default),
+.B \-1
+(previous), and so on.
+.TP
+.BI \-\-view= VIEW
+Event view:
+.B log
+(the default \(em original messages, verbatim) or
+.B human
+(BootLore's interpretation).
+.SS live
+Replay the current boot's existing events, then follow the journal live.
+Stops cleanly on SIGINT/SIGTERM.
+.TP
+.BI \-\-boot= OFFSET
+Which boot to watch (default: current).
+.TP
+.BI \-\-view= VIEW
+log (default) or human.
+.SS timeline
+Show the boot as a chronological timeline: every event is placed at its
+monotonic offset since boot (for example
+.BR +1.200s ),
+ordered chronologically.
+.TP
+.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET
+Same sources and boot selection as
+.BR collect .
+.TP
+.BI \-\-view= VIEW
+human (the default) or log.
+.SS explain
+Print events with contextual, educational explanations indented under each
+one, at the requested depth:
+.B overview
+(plain language),
+.B technical
+(the default: the underlying mechanism) or
+.B in\-depth
+(full educational context, including how to investigate).
+Events without a known explanation are still listed; BootLore never invents
+causes.
+.TP
+.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET
+Same sources and boot selection as
+.BR collect .
+.TP
+.BI \-\-level= LEVEL
+overview, technical (default) or in\-depth.
+.SS errors
+Print only noteworthy events: warnings and failures. Defaults to the human
+view; prints an explicit notice when nothing noteworthy is found.
+.TP
+.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET
+Same sources and boot selection as
+.BR collect .
+.TP
+.BI \-\-view= VIEW
+human (the default) or log.
+.SS version, help
+Print the version, or the built\-in usage summary.
+.SH SOURCES
+Commands that read events choose their source by precedence:
+.B \-\-input
+first, then piped standard input, then the system journal. In a terminal,
+.B bootlore collect
+therefore reads the current boot from journald without further flags;
+.B \-\-journal
+forces the journal even when stdin is piped.
+.SH EXIT STATUS
+.TP
+.B 0
+Success (including an empty boot \(em nothing noteworthy is not an error).
+.TP
+.B 1
+Runtime failure: journal backend missing or failed, or malformed input.
+A hint is printed on standard error when journalctl is unavailable.
+.TP
+.B 2
+Usage error: unknown command, unknown flag, invalid view or level.
+.SH EXAMPLES
+.PP
+Read the current boot from the journal, as readable descriptions:
+.PP
+.RS
+.nf
+bootlore collect \-\-view human
+.fi
+.RE
+.PP
+Follow the boot live, with original messages:
+.PP
+.RS
+.nf
+bootlore live
+.fi
+.RE
+.PP
+See what the previous boot got wrong:
+.PP
+.RS
+.nf
+bootlore errors \-\-boot \-1
+.fi
+.RE
+.PP
+Study how a boot works, in depth:
+.PP
+.RS
+.nf
+bootlore explain \-\-level in\-depth
+.fi
+.RE
+.PP
+Analyse a captured export without touching the live journal:
+.PP
+.RS
+.nf
+journalctl \-b \-o json | bootlore timeline
+.fi
+.RE
+.SH LIMITATIONS
+BootLore observes only what the systemd journal retained and what the invoking
+user may read. It cannot guarantee observation from the first kernel
+instruction: some early kernel or initramfs events may be missing, and live
+observation begins only when BootLore starts. Live monitoring requires
+.BR journalctl (1)
+from systemd. See
+.BR systemd\-journal (8)
+for access\-level configuration.
+.SH SEE ALSO
+.BR journalctl (1),
+.BR systemd (1),
+.BR systemd\-analyze (1),
+.BR dmesg (1),
+.BR systemd\-journal (8)

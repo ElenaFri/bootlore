@@ -20,17 +20,37 @@ BootLore is designed to be lightweight, read-only and non-intrusive. It observes
 BootLore is written in [Go](https://go.dev) (see `go.mod` for the required version) and has no external dependencies.
 
 ```sh
-# Build the CLI
 make build
+```
 
+### Commands
+
+| Command | What it does |
+|---|---|
+| `bootlore collect` | Print a boot's events from journald, a captured export or stdin |
+| `bootlore live` | Replay the current boot, then follow new events live (Ctrl-C stops) |
+| `bootlore timeline` | Chronological timeline with boot-relative offsets (`+1.200s`) |
+| `bootlore explain` | Events with educational explanations at three depths |
+| `bootlore errors` | Only warnings and failures — what went wrong |
+
+Most commands accept the same sources — `--input FILE` (a `journalctl -o json`
+export), piped stdin (`journalctl -b -o json | bootlore collect`), or the system
+journal directly (the default in a terminal; `--journal` forces it) — and the
+same views: `--view log` (faithful original messages, by default) or
+`--view human` (BootLore's interpretation).
+
+```sh
 # Read the current boot straight from the system journal (LOG view)
 ./bin/bootlore collect
 
 # Same boot, as readable descriptions (HUMAN view)
 ./bin/bootlore collect --view human
 
-# Replay the current boot, then follow new events live (Ctrl-C stops)
+# Follow the boot live
 ./bin/bootlore live
+
+# Timeline with offsets since boot
+./bin/bootlore timeline
 
 # Educational explanations, at three depths
 ./bin/bootlore explain --level in-depth
@@ -38,11 +58,8 @@ make build
 # Focus on what went wrong: warnings and failures only
 ./bin/bootlore errors
 
-# ...or pipe journal data in
-journalctl -b -o json | ./bin/bootlore collect
-
-# ...or replay a captured export
-./bin/bootlore collect --input boot.json
+# Previous boot, raw messages
+./bin/bootlore collect --boot -1
 ```
 
 ## Development

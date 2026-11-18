@@ -18,7 +18,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build run fmt fmt-check vet lint tidy \
+.PHONY: help build run fmt fmt-check vet lint tidy man \
         test test-unit test-integration test-system test-all cover clean ci
 
 help: ## Show this help
@@ -47,6 +47,9 @@ lint: fmt-check vet ## Run format check + go vet
 
 tidy: ## Tidy and verify go.mod / go.sum
 	$(Q)$(GO) mod tidy
+
+man: ## View the manual page (man/bootlore.1)
+	$(Q)man -l man/bootlore.1
 
 test: test-unit ## Alias for unit tests (fast feedback)
 
