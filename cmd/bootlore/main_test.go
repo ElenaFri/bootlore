@@ -403,6 +403,40 @@ func TestLiveCategoryFilter(t *testing.T) {
 	assertLines(t, stdout, "Started Network Manager.")
 }
 
+// --- tui command ---
+
+// Without a terminal (piped stdin/stdout, CI, redirections) the TUI must fail
+// gracefully instead of drawing garbage or hanging.
+func TestTuiRequiresTerminal(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"tui"}, strings.NewReader(""), &collectortest.FakeRunner{})
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "terminal") {
+		t.Errorf("stderr should explain that a terminal is required, got %q", stderr)
+	}
+	if stdout != "" {
+		t.Errorf("stdout must stay clean, got %q", stdout)
+	}
+}
+
+func TestTuiBadFlagFails(t *testing.T) {
+	_, _, code := runCLI([]string{"tui", "--bogus"}, strings.NewReader(""), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+}
+
+func TestTuiBadCategoryFails(t *testing.T) {
+	_, stderr, code := runCLI([]string{"tui", "--category", "bogus"}, strings.NewReader(""), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "valid:") {
+		t.Errorf("stderr should list valid categories, got %q", stderr)
+	}
+}
+
 // --- timeline command ---
 
 const shuffledMonotonic = `{"__MONOTONIC_TIMESTAMP":"2000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"third"}

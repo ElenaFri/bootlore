@@ -393,6 +393,25 @@ func TestCategoryFilterOnUserSessionJournal(t *testing.T) {
 	}
 }
 
+// Without a terminal the TUI must fail cleanly, not hang or spew escapes.
+func TestTuiRequiresTerminalEndToEnd(t *testing.T) {
+	res := runBootlore(t, "", "tui")
+	if res.code != 1 {
+		t.Fatalf("exit code = %d, want 1 (stderr = %q)", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stderr, "terminal") {
+		t.Errorf("stderr should explain the terminal requirement: %q", res.stderr)
+	}
+	if strings.Contains(res.stdout, "\x1b") {
+		t.Error("no escape sequences may leak to a non-tty stdout")
+	}
+
+	res = runBootlore(t, "", "tui", "--category", "bogus")
+	if res.code != 2 {
+		t.Errorf("bad category: exit code = %d, want 2", res.code)
+	}
+}
+
 func TestCategoryInvalidEndToEnd(t *testing.T) {
 	res := runBootlore(t, "", "collect", "--category", "bogus", "--input", fixturePath)
 	if res.code != 2 {

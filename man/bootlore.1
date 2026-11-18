@@ -112,6 +112,26 @@ Same sources, boot selection and category filter as
 .TP
 .BI \-\-view= VIEW
 human (the default) or log.
+.SS tui
+Start the interactive boot monitor: full\-screen, monochrome\-safe, reads the
+requested boot and then follows it live. Both stdin and stdout must be a
+terminal; without one BootLore exits with code 1 and a clear message.
+.TP
+.BI \-\-boot= OFFSET
+Which boot to watch (default: current).
+.TP
+.BI \-\-category= LIST
+Keep only events of the given subsystems (see
+.BR FILTERING ).
+The filter can also be edited interactively.
+.TP
+Interactive keys:
+1 / 2 switch LOG / HUMAN, Enter detail of the selected event ;
+Tab cycle the explanation level (overview, technical, in\-depth) ;
+j/k or arrows navigate, g/G top/bottom, pgup/pgdn page ;
+/ filter by category, Esc clear filter or close the detail ;
+q or Ctrl\-C quit. All output is plain text; selection and the status bar use
+reverse video only, which stays readable on monochrome terminals.
 .SS version, help
 Print the version, or the built\-in usage summary.
 .SH SOURCES

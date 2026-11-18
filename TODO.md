@@ -21,11 +21,11 @@
 ## Phase 3 — CLI and TUI
 
 - [x] Implement the command-line interface (`collect`, `live`, `explain`, `errors`, with LOG/HUMAN views and explanation levels)
-- [ ] Build a terminal-based real-time boot monitor
+- [x] Build a terminal-based real-time boot monitor (`bootlore tui`: replay + live, LOG/HUMAN/EXPLAIN, navigation, filtering, monochrome-safe)
 - [x] Display a chronological event timeline (`timeline`: monotonic offsets since boot, chronological order)
-- [x] Add event filtering and navigation (filtering done: `--category` on every command, `errors` for warnings/failures; navigation belongs to the TUI)
-- [ ] Provide detailed event inspection
-- [ ] Support small terminal sizes and monochrome output
+- [x] Add event filtering and navigation (`--category` on every command, `errors` for warnings/failures, in-session filtering/navigation in the TUI)
+- [x] Provide detailed event inspection (`bootlore explain`; in the TUI: Enter opens the event detail with the three explanation levels)
+- [x] Support small terminal sizes and monochrome output (no colours at all, reverse video only; explicit too-small message below 20x3)
 
 ## Phase 4 — Diagnostics and reporting
 

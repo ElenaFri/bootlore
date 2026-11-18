@@ -32,6 +32,7 @@ make build
 | `bootlore timeline` | Chronological timeline with boot-relative offsets (`+1.200s`) |
 | `bootlore explain` | Events with educational explanations at three depths |
 | `bootlore errors` | Only warnings and failures — what went wrong |
+| `bootlore tui` | Interactive monitor: views, navigation, filtering, detail (needs a tty) |
 
 Most commands accept the same sources — `--input FILE` (a `journalctl -o json`
 export), piped stdin (`journalctl -b -o json | bootlore collect`), or the system

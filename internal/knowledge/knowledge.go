@@ -250,6 +250,14 @@ func All() []Entry {
 	return out
 }
 
+// HasEntryFor reports whether a knowledge entry matches the event. It is a
+// convenience for callers (like the TUI) that need to know whether an
+// explanation exists without retrieving it.
+func HasEntryFor(e event.Event) bool {
+	_, ok := For(e)
+	return ok
+}
+
 // fromSystemd reports whether the event was emitted by the systemd manager
 // itself. Merely running inside a systemd unit is not enough: on a real journal
 // every process's messages carry the unit that hosts it (user@1000.service,

@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 	"syscall"
 
 	"github.com/ElenaFri/bootlore/internal/collector"
@@ -37,6 +38,7 @@ import (
 	"github.com/ElenaFri/bootlore/internal/journal"
 	"github.com/ElenaFri/bootlore/internal/knowledge"
 	"github.com/ElenaFri/bootlore/internal/render"
+	"github.com/ElenaFri/bootlore/internal/tui"
 )
 
 // version is overridable at build time with -ldflags "-X main.version=...".
@@ -71,6 +73,8 @@ func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collec
 		return cmdErrors(args[1:], stdin, stdout, stderr, c)
 	case "timeline":
 		return cmdTimeline(args[1:], stdin, stdout, stderr, c)
+	case "tui":
+		return cmdTui(args[1:], stdin, stdout, stderr, c)
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "bootlore %s\n", version)
 		return 0
@@ -96,6 +100,7 @@ Commands:
   timeline   Show the boot as a chronological timeline (+offsets since boot)
   explain    Print the HUMAN view with contextual, educational explanations
   errors     Print only warnings and failures (HUMAN view by default)
+  tui        Interactive boot monitor: views, navigation, filtering (needs a tty)
   version    Print the BootLore version
   help       Show this help
 
@@ -117,6 +122,15 @@ live flags:
 
 timeline and errors flags:
   --view V         event view: human (default) or log
+
+tui flags:
+  --boot OFFSET    which boot to watch (default: current)
+  --category LIST  only these subsystems (see above); also editable in-session with /
+
+tui keys:
+  1/2 switch LOG/HUMAN · Enter detail · Tab explanation level
+  j/k, up/down navigate · g/G top/bottom · pgup/pgdn page
+  / filter by category · Esc clear/back · q quit
 
 explain flags:
   --level L        explanation depth: overview, technical (default) or in-depth
@@ -336,6 +350,43 @@ func timelineOrdered(a, b event.Event) bool {
 		return a.MonotonicTimestamp < b.MonotonicTimestamp
 	}
 	return a.RealtimeTimestamp.Before(b.RealtimeTimestamp)
+}
+
+// cmdTui runs the interactive boot monitor. It requires a real terminal on
+// both stdin and stdout; without one (piped output, CI) it fails gracefully
+// with exit code 1 instead of drawing garbage.
+func cmdTui(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
+	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	boot := fs.String("boot", "", "boot to watch as a journalctl -b offset (default current boot)")
+	category := fs.String("category", "", "only these subsystems, comma-separated (default: all)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if _, err := filter.ParseCategories(*category); err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		return 2
+	}
+
+	in, inOK := stdin.(*os.File)
+	out, outOK := stdout.(*os.File)
+	if !inOK || !outOK || !tui.IsTerminalable(in, out) {
+		fmt.Fprintln(stderr, "bootlore: "+tui.ErrNotATTY.Error())
+		return 1
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	err := tui.Run(ctx, in, out, c, collector.Options{Boot: *boot}, strings.TrimSpace(*category))
+	if err != nil {
+		if errors.Is(err, tui.ErrNotATTY) {
+			fmt.Fprintln(stderr, "bootlore: "+err.Error())
+			return 1
+		}
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 // stdinIsPiped reports whether stdin carries piped data rather than being an
