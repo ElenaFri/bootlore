@@ -104,11 +104,18 @@ func TestExecRunnerStartFailsOnInvalidBinary(t *testing.T) {
 
 // Follow must deliver events as they arrive and end cleanly when the context
 // is canceled while the backend is still running.
+//
+// The stub must stay alive until canceled: if it exited on its own, the exit
+// would race the cancellation and legitimately surface as a backend error.
+// It therefore ends in `exec sleep`, which needs `sleep` on the PATH: the stub
+// directory comes first (so `journalctl` resolves to the stub) and the system
+// PATH follows. A PATH holding only the stub directory made `sleep` vanish, the
+// stub die at once, and this test fail intermittently on CI.
 func TestFollowDeliversAndStopsOnCancel(t *testing.T) {
 	dir := collectortest.WriteStubJournalctl(t, `printf '%s\n' '{"MESSAGE":"live one","__CURSOR":"c1","PRIORITY":"6"}'
 exec sleep 30
 `)
-	t.Setenv("PATH", dir)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := collector.New(collector.NewExecRunner())
