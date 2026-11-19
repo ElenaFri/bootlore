@@ -38,6 +38,7 @@ import (
 	"github.com/ElenaFri/bootlore/internal/journal"
 	"github.com/ElenaFri/bootlore/internal/knowledge"
 	"github.com/ElenaFri/bootlore/internal/render"
+	"github.com/ElenaFri/bootlore/internal/summary"
 	"github.com/ElenaFri/bootlore/internal/tui"
 )
 
@@ -73,6 +74,8 @@ func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collec
 		return cmdErrors(args[1:], stdin, stdout, stderr, c)
 	case "timeline":
 		return cmdTimeline(args[1:], stdin, stdout, stderr, c)
+	case "summary":
+		return cmdSummary(args[1:], stdin, stdout, stderr, c)
 	case "tui":
 		return cmdTui(args[1:], stdin, stdout, stderr, c)
 	case "version", "--version", "-v":
@@ -98,13 +101,14 @@ Commands:
   collect    Print the LOG view of a boot (from journald, a file or stdin)
   live       Replay the current boot, then follow new events live (Ctrl-C stops)
   timeline   Show the boot as a chronological timeline (+offsets since boot)
+  summary    Summarize a boot: counts, warnings, failures, timing, subsystems
   explain    Print the HUMAN view with contextual, educational explanations
   errors     Print only warnings and failures (HUMAN view by default)
   tui        Interactive boot monitor: views, navigation, filtering (needs a tty)
   version    Print the BootLore version
   help       Show this help
 
-flags shared by collect, timeline, explain and errors:
+flags shared by collect, timeline, summary, explain and errors:
   --journal        read directly from the system journal (journalctl)
   --boot OFFSET    which boot to read: 0 (current, default), -1 (previous), ...
   --input FILE     read captured journal JSON (journalctl -o json) from FILE
@@ -140,6 +144,7 @@ Examples:
   bootlore collect --boot -1 --view human
   bootlore live --category network
   bootlore timeline
+  bootlore summary
   bootlore explain --level in-depth
   bootlore errors --category storage,hardware
   journalctl -b -o json | bootlore collect
@@ -325,6 +330,29 @@ func cmdTimeline(args []string, stdin io.Reader, stdout, stderr io.Writer, c *co
 	for _, e := range events {
 		fmt.Fprintln(out, render.TimelineLine(e, body))
 	}
+	return 0
+}
+
+// cmdSummary aggregates a boot into a single high-level overview: how many
+// events there were, how many warnings and failures, the observed timing and the
+// breakdown by subsystem. It honours the shared source and --category flags, so
+// the overview can be narrowed to, for example, only storage events.
+func cmdSummary(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
+	fs := flag.NewFlagSet("summary", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	read := newReadFlags(fs)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	events, code, ok := read.events("summary", stdin, stderr, c)
+	if !ok {
+		return code
+	}
+
+	out := bufio.NewWriter(stdout)
+	defer out.Flush()
+	fmt.Fprintln(out, summary.Format(summary.Summarize(events)))
 	return 0
 }
 

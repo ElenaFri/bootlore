@@ -84,6 +84,17 @@ Same sources, boot selection and category filter as
 .TP
 .BI \-\-view= VIEW
 human (the default) or log.
+.SS summary
+Aggregate a boot into a single overview: the number of events, how many were
+normal, warnings and failures, the observed wall\-clock window, how far into the
+boot the events reached, and a breakdown by subsystem. Honours the same sources
+and category filter as
+.BR collect ,
+so the overview can be narrowed to, for example, only storage events.
+.TP
+.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET ", " \-\-category= LIST
+Same sources, boot selection and category filter as
+.BR collect .
 .SS explain
 Print events with contextual, educational explanations indented under each
 one, at the requested depth:
@@ -207,6 +218,14 @@ Study how a boot works, in depth:
 .RS
 .nf
 bootlore explain \-\-level in\-depth
+.fi
+.RE
+.PP
+Get a one\-screen overview of the current boot:
+.PP
+.RS
+.nf
+bootlore summary
 .fi
 .RE
 .PP

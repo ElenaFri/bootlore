@@ -13,7 +13,7 @@ import (
 const manPage = "../../man/bootlore.1"
 
 // commands the CLI exposes (kept in sync with the usage text by the test below).
-var commands = []string{"collect", "live", "timeline", "explain", "errors", "tui", "version", "help"}
+var commands = []string{"collect", "live", "timeline", "summary", "explain", "errors", "tui", "version", "help"}
 
 // The man page must document every CLI command...
 //

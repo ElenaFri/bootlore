@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -735,5 +736,76 @@ func TestRunServesPipedStdinWithProductionWiring(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Reached target Multi-User System.") {
 		t.Errorf("stdout = %q", out.String())
+	}
+}
+
+// --- summary command ---
+
+func TestSummaryReportsCountsAndSubsystems(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"summary"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	for _, want := range []string{"Boot summary", "NETWORK", "SYSTEMD", "(unclassified)"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("summary missing %q:\n%s", want, stdout)
+		}
+	}
+	if !regexp.MustCompile(`Events:\s+3`).MatchString(stdout) {
+		t.Errorf("summary should report 3 events:\n%s", stdout)
+	}
+	if !regexp.MustCompile(`Failures:\s+1`).MatchString(stdout) {
+		t.Errorf("summary should report 1 failure:\n%s", stdout)
+	}
+}
+
+func TestSummaryCategoryFilterComposes(t *testing.T) {
+	stdout, _, code := runCLI([]string{"summary", "--category", "network"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !regexp.MustCompile(`Events:\s+1`).MatchString(stdout) {
+		t.Errorf("filtered summary should report 1 event:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "SYSTEMD") {
+		t.Errorf("filtered summary should not mention other subsystems:\n%s", stdout)
+	}
+}
+
+func TestSummaryEmptyInput(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"summary"}, strings.NewReader(""), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if !regexp.MustCompile(`Events:\s+0`).MatchString(stdout) {
+		t.Errorf("empty summary should report 0 events:\n%s", stdout)
+	}
+}
+
+func TestSummaryBackendUnavailableShowsHint(t *testing.T) {
+	fr := &collectortest.FakeRunner{Err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
+	_, stderr, code := runCLI([]string{"summary", "--journal"}, strings.NewReader(""), fr)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "hint:") {
+		t.Errorf("stderr should contain the hint, got %q", stderr)
+	}
+}
+
+func TestSummaryBadCategoryFails(t *testing.T) {
+	_, stderr, code := runCLI([]string{"summary", "--category", "bogus"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "valid:") {
+		t.Errorf("stderr should list valid categories, got %q", stderr)
+	}
+}
+
+func TestSummaryBadFlagFails(t *testing.T) {
+	_, _, code := runCLI([]string{"summary", "--nope"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
 	}
 }

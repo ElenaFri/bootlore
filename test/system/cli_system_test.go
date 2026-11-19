@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -145,6 +146,24 @@ func TestCollectMalformedInputFails(t *testing.T) {
 	}
 	if res.stderr == "" {
 		t.Error("expected an error message on stderr")
+	}
+}
+
+func TestSummaryFromFile(t *testing.T) {
+	res := runBootlore(t, "", "summary", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	for _, want := range []string{"Boot summary", "9f1c2d", "+6.000s"} {
+		if !strings.Contains(res.stdout, want) {
+			t.Errorf("summary missing %q:\n%s", want, res.stdout)
+		}
+	}
+	if !regexp.MustCompile(`Events:\s+5`).MatchString(res.stdout) {
+		t.Errorf("summary should report 5 events:\n%s", res.stdout)
+	}
+	if !regexp.MustCompile(`Failures:\s+1`).MatchString(res.stdout) {
+		t.Errorf("summary should report 1 failure:\n%s", res.stdout)
 	}
 }
 

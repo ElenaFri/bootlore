@@ -30,6 +30,7 @@ make build
 | `bootlore collect` | Print a boot's events from journald, a captured export or stdin |
 | `bootlore live` | Replay the current boot, then follow new events live (Ctrl-C stops) |
 | `bootlore timeline` | Chronological timeline with boot-relative offsets (`+1.200s`) |
+| `bootlore summary` | One-screen overview: counts, warnings, failures, timing, subsystems |
 | `bootlore explain` | Events with educational explanations at three depths |
 | `bootlore errors` | Only warnings and failures — what went wrong |
 | `bootlore tui` | Interactive monitor: views, navigation, filtering, detail (needs a tty) |
