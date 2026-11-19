@@ -167,6 +167,16 @@ func TestSummaryFromFile(t *testing.T) {
 	}
 }
 
+func TestServicesFromFile(t *testing.T) {
+	res := runBootlore(t, "", "services", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "Failed services") || !strings.Contains(res.stdout, "bluetooth.service") {
+		t.Errorf("services should report the failed bluetooth unit:\n%s", res.stdout)
+	}
+}
+
 func TestVersion(t *testing.T) {
 	res := runBootlore(t, "", "version")
 	if res.code != 0 {

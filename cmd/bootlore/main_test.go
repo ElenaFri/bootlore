@@ -809,3 +809,53 @@ func TestSummaryBadFlagFails(t *testing.T) {
 		t.Errorf("exit code = %d, want 2", code)
 	}
 }
+
+// --- services command ---
+
+func TestServicesReportsFailedServices(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"services"}, strings.NewReader(failureEntry), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "Failed services") || !strings.Contains(stdout, "bluetooth.service") {
+		t.Errorf("services should report the failed unit:\n%s", stdout)
+	}
+}
+
+func TestServicesNoFailures(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"services"}, strings.NewReader(nmEntry), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "No failed services") {
+		t.Errorf("services should say there were no failures:\n%s", stdout)
+	}
+}
+
+func TestServicesBackendUnavailableShowsHint(t *testing.T) {
+	fr := &collectortest.FakeRunner{Err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
+	_, stderr, code := runCLI([]string{"services", "--journal"}, strings.NewReader(""), fr)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "hint:") {
+		t.Errorf("stderr should contain the hint, got %q", stderr)
+	}
+}
+
+func TestServicesBadCategoryFails(t *testing.T) {
+	_, stderr, code := runCLI([]string{"services", "--category", "bogus"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "valid:") {
+		t.Errorf("stderr should list valid categories, got %q", stderr)
+	}
+}
+
+func TestServicesBadFlagFails(t *testing.T) {
+	_, _, code := runCLI([]string{"services", "--nope"}, strings.NewReader(mixedEntries), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+}

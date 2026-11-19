@@ -38,6 +38,7 @@ import (
 	"github.com/ElenaFri/bootlore/internal/journal"
 	"github.com/ElenaFri/bootlore/internal/knowledge"
 	"github.com/ElenaFri/bootlore/internal/render"
+	"github.com/ElenaFri/bootlore/internal/services"
 	"github.com/ElenaFri/bootlore/internal/summary"
 	"github.com/ElenaFri/bootlore/internal/tui"
 )
@@ -76,6 +77,8 @@ func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collec
 		return cmdTimeline(args[1:], stdin, stdout, stderr, c)
 	case "summary":
 		return cmdSummary(args[1:], stdin, stdout, stderr, c)
+	case "services":
+		return cmdServices(args[1:], stdin, stdout, stderr, c)
 	case "tui":
 		return cmdTui(args[1:], stdin, stdout, stderr, c)
 	case "version", "--version", "-v":
@@ -102,13 +105,14 @@ Commands:
   live       Replay the current boot, then follow new events live (Ctrl-C stops)
   timeline   Show the boot as a chronological timeline (+offsets since boot)
   summary    Summarize a boot: counts, warnings, failures, timing, subsystems
+  services   List failed systemd services and reconstructed startup timings
   explain    Print the HUMAN view with contextual, educational explanations
   errors     Print only warnings and failures (HUMAN view by default)
   tui        Interactive boot monitor: views, navigation, filtering (needs a tty)
   version    Print the BootLore version
   help       Show this help
 
-flags shared by collect, timeline, summary, explain and errors:
+flags shared by collect, timeline, summary, services, explain and errors:
   --journal        read directly from the system journal (journalctl)
   --boot OFFSET    which boot to read: 0 (current, default), -1 (previous), ...
   --input FILE     read captured journal JSON (journalctl -o json) from FILE
@@ -145,6 +149,7 @@ Examples:
   bootlore live --category network
   bootlore timeline
   bootlore summary
+  bootlore services
   bootlore explain --level in-depth
   bootlore errors --category storage,hardware
   journalctl -b -o json | bootlore collect
@@ -330,6 +335,29 @@ func cmdTimeline(args []string, stdin io.Reader, stdout, stderr io.Writer, c *co
 	for _, e := range events {
 		fmt.Fprintln(out, render.TimelineLine(e, body))
 	}
+	return 0
+}
+
+// cmdServices diagnoses a boot's systemd services: the units that failed and
+// the startup timings BootLore could reconstruct (slowest first). It honours the
+// shared source and --category flags, so the diagnosis can be narrowed to, for
+// example, only storage units.
+func cmdServices(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
+	fs := flag.NewFlagSet("services", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	read := newReadFlags(fs)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	events, code, ok := read.events("services", stdin, stderr, c)
+	if !ok {
+		return code
+	}
+
+	out := bufio.NewWriter(stdout)
+	defer out.Flush()
+	fmt.Fprintln(out, services.Format(services.Analyze(events)))
 	return 0
 }
 

@@ -129,6 +129,24 @@ func TestFormatOffset(t *testing.T) {
 	}
 }
 
+func TestDuration(t *testing.T) {
+	cases := map[string]struct {
+		d    time.Duration
+		want string
+	}{
+		"zero":             {0, "0.000s"},
+		"milliseconds":     {1200 * time.Millisecond, "1.200s"},
+		"sub-second":       {250 * time.Millisecond, "0.250s"},
+		"over a minute":    {95500 * time.Millisecond, "95.500s"},
+		"fractional micro": {1204567 * time.Microsecond, "1.205s"},
+	}
+	for _, tc := range cases {
+		if got := Duration(tc.d); got != tc.want {
+			t.Errorf("Duration(%v) = %q, want %q", tc.d, got, tc.want)
+		}
+	}
+}
+
 func TestTimelineLineHumanBody(t *testing.T) {
 	e := event.Event{
 		Message:            "Started Network Manager.",

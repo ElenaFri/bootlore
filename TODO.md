@@ -30,7 +30,7 @@
 ## Phase 4 — Diagnostics and reporting
 
 - [x] Implement boot summary
-- [ ] Identify failed and slow systemd services
+- [x] Identify failed and slow systemd services
 - [ ] Provide boot duration and timing information
 - [ ] Compare successive boot sessions
 - [ ] Export diagnostic reports

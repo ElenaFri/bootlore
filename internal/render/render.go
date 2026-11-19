@@ -106,6 +106,13 @@ func FormatOffset(d time.Duration) string {
 	return fmt.Sprintf("+%.3fs", d.Seconds())
 }
 
+// Duration renders a plain duration in seconds with millisecond precision
+// ("1.200s"). Unlike FormatOffset it is not boot-relative: there is no leading
+// "+", and a zero duration is shown as "0.000s" rather than "-".
+func Duration(d time.Duration) string {
+	return fmt.Sprintf("%.3fs", d.Seconds())
+}
+
 // TimelineLine formats an event for the timeline view: the boot-relative
 // monotonic offset, then the view body produced by body (LogBody or HumanBody).
 //

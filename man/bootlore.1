@@ -95,6 +95,21 @@ so the overview can be narrowed to, for example, only storage events.
 .BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET ", " \-\-category= LIST
 Same sources, boot selection and category filter as
 .BR collect .
+.SS services
+Diagnose systemd services for a boot: the units that failed (with their failure
+message and offset), and the service startup timings BootLore could reconstruct
+by pairing each
+.B Starting
+message with its
+.B Started
+or
+.B Finished
+message, slowest first. Only measured spans are reported; BootLore never guesses
+a duration.
+.TP
+.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET ", " \-\-category= LIST
+Same sources, boot selection and category filter as
+.BR collect .
 .SS explain
 Print events with contextual, educational explanations indented under each
 one, at the requested depth:
@@ -226,6 +241,14 @@ Get a one\-screen overview of the current boot:
 .RS
 .nf
 bootlore summary
+.fi
+.RE
+.PP
+Find out which services failed or were slow to start:
+.PP
+.RS
+.nf
+bootlore services
 .fi
 .RE
 .PP

@@ -31,6 +31,7 @@ make build
 | `bootlore live` | Replay the current boot, then follow new events live (Ctrl-C stops) |
 | `bootlore timeline` | Chronological timeline with boot-relative offsets (`+1.200s`) |
 | `bootlore summary` | One-screen overview: counts, warnings, failures, timing, subsystems |
+| `bootlore services` | Failed systemd services and reconstructed startup timings |
 | `bootlore explain` | Events with educational explanations at three depths |
 | `bootlore errors` | Only warnings and failures — what went wrong |
 | `bootlore tui` | Interactive monitor: views, navigation, filtering, detail (needs a tty) |

@@ -152,7 +152,7 @@ func Format(s Summary) string {
 			"Observed:",
 			s.First.UTC().Format(time.RFC3339),
 			s.Last.UTC().Format(time.RFC3339),
-			formatDuration(s.Span))
+			render.Duration(s.Span))
 	}
 	if s.Elapsed > 0 {
 		fmt.Fprintf(&b, "  %-12s %s\n", "Into boot:", render.FormatOffset(s.Elapsed))
@@ -173,10 +173,4 @@ func Format(s Summary) string {
 	}
 
 	return b.String()
-}
-
-// formatDuration renders a span in seconds with millisecond precision
-// ("5.000s"), matching the boot-relative offsets used elsewhere.
-func formatDuration(d time.Duration) string {
-	return fmt.Sprintf("%.3fs", d.Seconds())
 }
