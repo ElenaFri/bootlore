@@ -10,7 +10,7 @@ import (
 )
 
 // Line is one rendered screen row: plain text (never escape sequences or
-// colours), plus a Reverse marker the terminal layer turns into reverse video —
+// colours), plus a Reverse marker the terminal layer turns into reverse video,
 // which stays usable on monochrome terminals.
 type Line struct {
 	Text    string
@@ -40,96 +40,114 @@ func Render(m *Model, w, h int) Frame {
 		return f
 	}
 
-	if m.Detail() {
+	if m.Detail() && m.Count() > 0 {
 		f.Lines = renderDetail(m, w, h)
 	} else {
-		f.Lines = renderList(m, w, h)
+		f.Lines = renderList(m, h)
 	}
-	// All lines must fit the terminal exactly.
+	// Every line must fit the terminal.
 	for i := range f.Lines {
 		f.Lines[i].Text = truncate(f.Lines[i].Text, w)
 	}
 	return f
 }
 
-func renderList(m *Model, w, h int) []Line {
-	rows := h - 1 // status bar takes the last line
+func renderList(m *Model, h int) []Line {
+	rows := h - 1 // the status bar takes the last line
 	lines := make([]Line, 0, h)
 
 	if m.Count() == 0 {
 		lines = append(lines, Line{Text: "No events yet — waiting for journal input…"})
-		for len(lines) < rows-1 {
-			lines = append(lines, Line{Text: ""})
+		for len(lines) < rows {
+			lines = append(lines, Line{})
 		}
 	} else {
+		body := render.LogBody
+		if m.View() == ViewHuman {
+			body = render.HumanBody
+		}
 		for i := 0; i < rows; i++ {
 			idx := m.Top() + i
 			if idx >= m.Count() {
-				lines = append(lines, Line{Text: ""})
+				lines = append(lines, Line{})
 				continue
 			}
-			e := m.Visible(idx)
-			var body func(event.Event) string
-			if m.View() == ViewHuman {
-				body = render.HumanBody
-			} else {
-				body = render.LogBody
-			}
 			lines = append(lines, Line{
-				Text:    render.TimelineLine(e, body),
+				Text:    render.TimelineLine(m.Visible(idx), body),
 				Reverse: idx == m.Cursor(),
 			})
 		}
 	}
 
-	lines = append(lines, Line{Text: statusLine(m, m.Count(), m.AllCount()), Reverse: true})
+	return append(lines, Line{Text: statusLine(m), Reverse: true})
+}
+
+// detailRows is the number of body rows of the detail pane on a terminal h
+// lines high: the header and the status bar take two.
+func detailRows(h int) int {
+	if h-2 < 1 {
+		return 1
+	}
+	return h - 2
+}
+
+// detailBody is the content of the detail pane, wrapped to w: the LOG and HUMAN
+// representations of the event and its EXPLAIN section at the given level. The
+// explanation is the knowledge base's own text; when there is none, the pane
+// says so rather than inventing one.
+func detailBody(e event.Event, level knowledge.Level, w int) []string {
+	sections := []string{
+		"LOG     " + render.LogLine(e),
+		"HUMAN   " + render.HumanLine(e),
+	}
+	if entry, ok := knowledge.For(e); ok {
+		sections = append(sections, fmt.Sprintf("EXPLAIN [%s] %s", level, entry.Text(level)))
+	} else {
+		sections = append(sections, "EXPLAIN (no explanation available for this event; the original message is above)")
+	}
+
+	var lines []string
+	for _, s := range sections {
+		lines = append(lines, wrap(s, w)...)
+	}
 	return lines
 }
 
 func renderDetail(m *Model, w, h int) []Line {
 	e := m.Visible(m.Cursor())
-	lines := make([]Line, 0, h)
 
 	header := fmt.Sprintf("Event %d/%d", m.Cursor()+1, m.Count())
 	if meta := detailMeta(e); meta != "" {
 		header += " · " + meta
 	}
-	lines = append(lines, Line{Text: header + " · Tab:level Esc:back q:quit", Reverse: true})
+	header += " · Tab:level j/k:scroll Esc:back q:quit"
 
-	body := []string{
-		"LOG     " + render.LogLine(e),
-		"HUMAN   " + render.HumanLine(e),
+	body := detailBody(e, m.Level(), w)
+	rows := detailRows(h)
+
+	// Clamp here too: the terminal may have shrunk since the offset was set.
+	offset := m.DetailOffset()
+	if max := len(body) - rows; offset > max {
+		offset = max
 	}
-	entry, ok := knowledge.For(e)
-	if !ok {
-		body = append(body, "EXPLAIN (no explanation available for this event; the original message is above)")
-	} else {
-		level := m.Level()
-		body = append(body, fmt.Sprintf("EXPLAIN [%s] %s", level, entry.Text(level)))
+	if offset < 0 {
+		offset = 0
 	}
 
-	shown := 0
-	for _, para := range body {
-		for _, ln := range wrap(para, w) {
-			if shown >= m.detailLine {
-				lines = append(lines, Line{Text: ln})
-			}
-			shown++
-			if len(lines) >= h-1 {
-				goto done
-			}
+	lines := make([]Line, 0, h)
+	lines = append(lines, Line{Text: header, Reverse: true})
+	for i := 0; i < rows; i++ {
+		text := ""
+		if idx := offset + i; idx < len(body) {
+			text = body[idx]
 		}
+		lines = append(lines, Line{Text: text})
 	}
-done:
-	for len(lines) < h-1 {
-		lines = append(lines, Line{Text: ""})
-	}
-	lines = append(lines, Line{Text: statusLine(m, m.Count(), m.AllCount()), Reverse: true})
-	return lines
+	return append(lines, Line{Text: statusLine(m), Reverse: true})
 }
 
 func detailMeta(e event.Event) string {
-	parts := []string{}
+	var parts []string
 	if e.Origin != "" {
 		parts = append(parts, string(e.Origin))
 	}
@@ -139,50 +157,29 @@ func detailMeta(e event.Event) string {
 	return strings.Join(parts, " · ")
 }
 
-func statusLine(m *Model, visible, total int) string {
+// statusLine is the bottom bar. While the filter editor is open it shows the
+// text being typed first and the keys, then any error, so that the keys stay
+// visible on a narrow terminal and the error is the part that gets cut.
+func statusLine(m *Model) string {
+	if m.FilterEditing() {
+		line := fmt.Sprintf("filter: %s · Enter:apply Esc:cancel", m.FilterBuffer())
+		if s := m.Status(); s != "" {
+			line += " · " + s
+		}
+		return line
+	}
+
 	view := "LOG"
 	if m.View() == ViewHuman {
 		view = "HUMAN"
 	}
-	if m.FilterEditing() {
-		return fmt.Sprintf("filter: %s · Enter:apply Esc:cancel", m.FilterBuffer())
-	}
-	filter := "no filter"
+	note := "no filter"
 	if spec := m.FilterSpec(); spec != "" {
-		filter = "filter:" + spec
+		note = "filter:" + spec
 	}
-	status := m.Status()
-	if status != "" {
-		filter = status
+	if s := m.Status(); s != "" {
+		note = s
 	}
 	return fmt.Sprintf("%s · %s · %d/%d events · 1:LOG 2:HUMAN Enter:detail /:filter q:quit",
-		view, filter, visible, total)
-}
-
-func truncate(s string, w int) string {
-	if len(s) <= w {
-		return s
-	}
-	if w == 1 {
-		return "…"
-	}
-	if w == 2 {
-		return s[:1] + "…"
-	}
-	return s[:w-3] + "…"
-}
-
-func wrap(s string, w int) []string {
-	var out []string
-	for _, para := range strings.Split(s, "\n") {
-		for {
-			if len(para) <= w {
-				out = append(out, para)
-				break
-			}
-			out = append(out, para[:w])
-			para = para[w:]
-		}
-	}
-	return out
+		view, note, m.Count(), m.AllCount())
 }

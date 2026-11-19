@@ -17,6 +17,7 @@ coverage:
 # keeps the reported coverage focused on behavior that matters.
 ignore:
   - "internal/collectortest"
+  - "internal/ptytest"
 
 comment:
   layout: "reach, diff, flags, files"

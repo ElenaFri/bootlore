@@ -129,7 +129,7 @@ tui flags:
 
 tui keys:
   1/2 switch LOG/HUMAN · Enter detail · Tab explanation level
-  j/k, up/down navigate · g/G top/bottom · pgup/pgdn page
+  j/k, up/down navigate (scroll, in the detail) · g/G top/bottom · pgup/pgdn page
   / filter by category · Esc clear/back · q quit
 
 explain flags:
@@ -379,11 +379,10 @@ func cmdTui(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collect
 	defer stop()
 	err := tui.Run(ctx, in, out, c, collector.Options{Boot: *boot}, strings.TrimSpace(*category))
 	if err != nil {
-		if errors.Is(err, tui.ErrNotATTY) {
-			fmt.Fprintln(stderr, "bootlore: "+err.Error())
-			return 1
-		}
 		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		if errors.Is(err, collector.ErrBackendUnavailable) {
+			fmt.Fprintln(stderr, "hint: BootLore's TUI needs systemd's journalctl")
+		}
 		return 1
 	}
 	return 0

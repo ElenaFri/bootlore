@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/ElenaFri/bootlore/internal/event"
 	"github.com/ElenaFri/bootlore/internal/knowledge"
@@ -38,8 +39,8 @@ func TestRenderTruncatesToWidth(t *testing.T) {
 	m := newModel(newTestEvent(strings.Repeat("long ", 100)+"end", "a.service"))
 	f := Render(m, 40, 10)
 	for _, l := range f.Lines {
-		if len(l.Text) > 40 {
-			t.Errorf("line exceeds the width (%d > 40): %q", len(l.Text), l.Text)
+		if utf8.RuneCountInString(l.Text) > 40 {
+			t.Errorf("line exceeds the width: %q", l.Text)
 		}
 	}
 	// Nothing is silently invented: the truncation must have dropped content,
@@ -199,7 +200,7 @@ func TestRenderSmallTerminal(t *testing.T) {
 		t.Fatalf("got %d lines, want 4", len(f.Lines))
 	}
 	for _, l := range f.Lines {
-		if len(l.Text) > 20 {
+		if utf8.RuneCountInString(l.Text) > 20 {
 			t.Errorf("line exceeds width: %q", l.Text)
 		}
 	}

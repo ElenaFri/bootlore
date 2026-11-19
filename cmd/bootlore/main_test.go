@@ -2,15 +2,19 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ElenaFri/bootlore/internal/collector"
 	"github.com/ElenaFri/bootlore/internal/collectortest"
+	"github.com/ElenaFri/bootlore/internal/ptytest"
 )
 
 const twoEntries = `{"__REALTIME_TIMESTAMP":"1700000000000000","__MONOTONIC_TIMESTAMP":"1200000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"Reached target Multi-User System."}
@@ -403,7 +407,129 @@ func TestLiveCategoryFilter(t *testing.T) {
 	assertLines(t, stdout, "Started Network Manager.")
 }
 
+// An unknown flag is a usage error (exit 2) for every command, with the flag
+// package's own message on stderr.
+func TestUnknownFlagIsAUsageErrorForEveryCommand(t *testing.T) {
+	for _, cmd := range []string{"collect", "live", "timeline", "explain", "errors", "tui"} {
+		_, stderr, code := runCLI([]string{cmd, "--no-such-flag"}, strings.NewReader(""), &collectortest.FakeRunner{})
+		if code != 2 {
+			t.Errorf("%s --no-such-flag: exit code = %d, want 2", cmd, code)
+		}
+		if !strings.Contains(stderr, "no-such-flag") {
+			t.Errorf("%s --no-such-flag: stderr should name the flag, got %q", cmd, stderr)
+		}
+	}
+}
+
 // --- tui command ---
+
+// tuiRun is a tui command running on a pseudo-terminal.
+type tuiRun struct {
+	pty    *ptytest.Pty
+	stderr *bytes.Buffer
+	code   chan int
+}
+
+// startTui runs `bootlore tui <args>` on a pty and waits until the screen is up.
+func startTui(t *testing.T, runner collector.Runner, args ...string) *tuiRun {
+	t.Helper()
+	p := ptytest.New(t, 100, 12)
+	r := &tuiRun{pty: p, stderr: &bytes.Buffer{}, code: make(chan int, 1)}
+	go func() {
+		r.code <- runWith(append([]string{"tui"}, args...), p.Slave, p.Slave, r.stderr, collector.New(runner))
+	}()
+	p.WaitFor(t, 0, "\x1b[?1049h")
+	return r
+}
+
+func (r *tuiRun) exitCode(t *testing.T) int {
+	t.Helper()
+	select {
+	case c := <-r.code:
+		return c
+	case <-time.After(5 * time.Second):
+		t.Fatal("bootlore tui did not exit in time")
+		return -1
+	}
+}
+
+// recordingRunner keeps the arguments of every journal invocation.
+type recordingRunner struct {
+	mu    sync.Mutex
+	calls [][]string
+	out   string
+}
+
+func (r *recordingRunner) Run(_ context.Context, args []string) (io.ReadCloser, error) {
+	r.mu.Lock()
+	r.calls = append(r.calls, args)
+	first := len(r.calls) == 1
+	r.mu.Unlock()
+	if first {
+		return io.NopCloser(strings.NewReader(r.out)), nil
+	}
+	return io.NopCloser(strings.NewReader("")), nil
+}
+
+func (r *recordingRunner) firstCall() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls[0]
+}
+
+func TestTuiRunsOnATerminalAndQuits(t *testing.T) {
+	r := startTui(t, &recordingRunner{out: nmEntry})
+	r.pty.WaitFor(t, 0, "Started Network Manager.")
+	r.pty.Type(t, "q")
+	if code := r.exitCode(t); code != 0 {
+		t.Errorf("exit code = %d, want 0 (stderr = %q)", code, r.stderr.String())
+	}
+	if r.stderr.Len() != 0 {
+		t.Errorf("stderr should stay empty, got %q", r.stderr.String())
+	}
+}
+
+func TestTuiPassesBootAndCategoryOptions(t *testing.T) {
+	runner := &recordingRunner{out: nmEntry + "\n" + opaqueEntry}
+	r := startTui(t, runner, "--boot", "-1", "--category", "network")
+	r.pty.WaitFor(t, 0, "filter:network")
+	r.pty.WaitFor(t, 0, "1/2 events")
+	r.pty.Type(t, "q")
+	if code := r.exitCode(t); code != 0 {
+		t.Fatalf("exit code = %d (stderr = %q)", code, r.stderr.String())
+	}
+	if got := strings.Join(runner.firstCall(), " "); !strings.Contains(got, "-b -1") {
+		t.Errorf("journal was asked for %q, want the previous boot (-b -1)", got)
+	}
+}
+
+func TestTuiBackendUnavailableShowsHint(t *testing.T) {
+	p := ptytest.New(t, 100, 12)
+	var errb bytes.Buffer
+	fr := &collectortest.FakeRunner{Err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
+
+	code := runWith([]string{"tui"}, p.Slave, p.Slave, &errb, collector.New(fr))
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(errb.String(), "bootlore:") || !strings.Contains(errb.String(), "hint:") {
+		t.Errorf("stderr should carry the error and a hint, got %q", errb.String())
+	}
+}
+
+func TestTuiOtherErrorHasNoBackendHint(t *testing.T) {
+	p := ptytest.New(t, 100, 12)
+	var errb bytes.Buffer
+	fr := &collectortest.FakeRunner{Err: fmt.Errorf("something else broke")}
+
+	code := runWith([]string{"tui"}, p.Slave, p.Slave, &errb, collector.New(fr))
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if strings.Contains(errb.String(), "hint:") || !strings.Contains(errb.String(), "something else broke") {
+		t.Errorf("stderr = %q, want the error without the journalctl hint", errb.String())
+	}
+}
 
 // Without a terminal (piped stdin/stdout, CI, redirections) the TUI must fail
 // gracefully instead of drawing garbage or hanging.
