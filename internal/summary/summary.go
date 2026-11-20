@@ -125,6 +125,20 @@ func categoryLabel(c event.Category) string {
 	return string(c)
 }
 
+// BootLabel returns a display label for a summary's boot identity: the boot ID
+// when the events describe a single boot, a count when they span several, or
+// "(unknown)" when no event carried an identifier.
+func BootLabel(s Summary) string {
+	switch {
+	case s.Boots > 1:
+		return fmt.Sprintf("(multiple: %d boots)", s.Boots)
+	case s.BootID == "":
+		return "(unknown)"
+	default:
+		return s.BootID
+	}
+}
+
 // Format renders a Summary as a stable, monochrome multi-line report, without a
 // trailing newline. It degrades gracefully: with no events it says so instead
 // of printing an empty or invented observation window.
@@ -133,13 +147,7 @@ func Format(s Summary) string {
 
 	b.WriteString("Boot summary\n")
 
-	bootID := s.BootID
-	if s.Boots > 1 {
-		bootID = fmt.Sprintf("(multiple: %d boots)", s.Boots)
-	} else if bootID == "" {
-		bootID = "(unknown)"
-	}
-	fmt.Fprintf(&b, "  %-12s %s\n", "Boot ID:", bootID)
+	fmt.Fprintf(&b, "  %-12s %s\n", "Boot ID:", BootLabel(s))
 	fmt.Fprintf(&b, "  %-12s %d\n", "Events:", s.Total)
 
 	if s.Total == 0 {

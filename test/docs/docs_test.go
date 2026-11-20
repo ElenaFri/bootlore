@@ -13,7 +13,7 @@ import (
 const manPage = "../../man/bootlore.1"
 
 // commands the CLI exposes (kept in sync with the usage text by the test below).
-var commands = []string{"collect", "live", "timeline", "summary", "services", "timing", "explain", "errors", "tui", "version", "help"}
+var commands = []string{"collect", "live", "timeline", "summary", "services", "timing", "compare", "explain", "errors", "tui", "version", "help"}
 
 // The man page must document every CLI command...
 //
@@ -41,7 +41,7 @@ func TestManPageDocumentsEveryFlag(t *testing.T) {
 	page := readFile(t, manPage)
 	// roff escapes the dashes: \-\-input, \-\-journal, ...
 	flat := strings.ReplaceAll(page, `\-`, "-")
-	for _, flag := range []string{"--input", "--journal", "--boot", "--view", "--level", "--category"} {
+	for _, flag := range []string{"--input", "--journal", "--boot", "--view", "--level", "--category", "--against", "--against-input"} {
 		if !strings.Contains(flat, flag) {
 			t.Errorf("man page does not document the %s flag", flag)
 		}

@@ -139,6 +139,57 @@ Same sources and boot selection as
 There is no
 .B \-\-category
 filter: dropping the startup summary line would corrupt the totals.
+.SS compare
+Contrast two boots: a current (later) boot against an earlier baseline. Answers
+"how does this boot compare to the previous one?" by diffing their duration
+(faster or slower), their event, warning and failure counts, and their failed
+units, sorted into those that were fixed, those that newly regressed and those
+still failing. A duration delta is flagged
+.B observed
+when either side's total came from the largest observed offset rather than
+systemd's startup summary. When both boots carry systemd's startup summary, the
+duration is broken down per phase
+.RB ( firmware ,
+.BR loader ,
+.BR kernel ,
+.BR initrd ,
+.BR userspace )
+so a firmware or boot-loader slowdown is never mistaken for a Linux regression; a
+phase measured on only one side shows
+.B n/a
+for the other. Transient
+.B run-*
+units (as created by
+.B systemd-run
+and
+.BR run0 )
+are named uniquely per invocation, so they are kept out of the failed-unit diff
+and merely counted per side. Long 32-character boot IDs are shortened to their
+first twelve characters so the columns stay aligned. Unlike the other commands,
+.B compare
+does not read standard input: two boots cannot share one pipe.
+.TP
+.BI \-\-boot= OFFSET
+The current (later) boot to read, as a
+.B journalctl \-b
+offset (default:
+.BR 0 ).
+.TP
+.BI \-\-against= OFFSET
+The baseline (earlier) boot to read, as a
+.B journalctl \-b
+offset (default:
+.BR \-1 ).
+.TP
+.BI \-\-input= FILE
+Read the current boot's journal JSON from
+.I FILE
+instead of the journal.
+.TP
+.BI \-\-against\-input= FILE
+Read the baseline boot's journal JSON from
+.I FILE
+instead of the journal.
 .SS explain
 Print events with contextual, educational explanations indented under each
 one, at the requested depth:
@@ -286,6 +337,14 @@ See how long the boot took, phase by phase:
 .RS
 .nf
 bootlore timing
+.fi
+.RE
+.PP
+See whether this boot got faster or more reliable than the previous one:
+.PP
+.RS
+.nf
+bootlore compare
 .fi
 .RE
 .PP

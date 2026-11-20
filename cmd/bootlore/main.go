@@ -32,6 +32,7 @@ import (
 	"syscall"
 
 	"github.com/ElenaFri/bootlore/internal/collector"
+	"github.com/ElenaFri/bootlore/internal/compare"
 	"github.com/ElenaFri/bootlore/internal/event"
 	"github.com/ElenaFri/bootlore/internal/filter"
 	"github.com/ElenaFri/bootlore/internal/interpret"
@@ -82,6 +83,8 @@ func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collec
 		return cmdServices(args[1:], stdin, stdout, stderr, c)
 	case "timing":
 		return cmdTiming(args[1:], stdin, stdout, stderr, c)
+	case "compare":
+		return cmdCompare(args[1:], stdout, stderr, c)
 	case "tui":
 		return cmdTui(args[1:], stdin, stdout, stderr, c)
 	case "version", "--version", "-v":
@@ -110,6 +113,7 @@ Commands:
   summary    Summarize a boot: counts, warnings, failures, timing, subsystems
   services   List failed systemd services and reconstructed startup timings
   timing     Report boot duration: systemd's startup summary, phases, milestones
+  compare    Contrast two boots: duration, counts and service-failure changes
   explain    Print the HUMAN view with contextual, educational explanations
   errors     Print only warnings and failures (HUMAN view by default)
   tui        Interactive boot monitor: views, navigation, filtering (needs a tty)
@@ -149,6 +153,12 @@ timing flags (no --category: it would drop the startup summary line):
   --boot OFFSET    which boot to read (default current)
   --input FILE     read captured journal JSON (journalctl -o json) from FILE
 
+compare flags (contrasts a later boot against an earlier baseline):
+  --boot OFFSET          current (later) boot to read (default: 0)
+  --against OFFSET       baseline (earlier) boot to read (default: -1)
+  --input FILE           read the current boot's journal JSON from FILE
+  --against-input FILE   read the baseline boot's journal JSON from FILE
+
 explain flags:
   --level L        explanation depth: overview, technical (default) or in-depth
 
@@ -160,6 +170,7 @@ Examples:
   bootlore summary
   bootlore services
   bootlore timing
+  bootlore compare
   bootlore explain --level in-depth
   bootlore errors --category storage,hardware
   journalctl -b -o json | bootlore collect
@@ -203,8 +214,7 @@ func (r *readFlags) events(cmd string, stdin io.Reader, stderr io.Writer, c *col
 		return nil, 1, false
 	}
 
-	for _, ev := range raw {
-		e := interpret.Interpret(ev)
+	for _, e := range interpretAll(raw) {
 		if flt.Match(e) {
 			events = append(events, e)
 		}
@@ -438,6 +448,75 @@ func cmdTiming(args []string, stdin io.Reader, stdout, stderr io.Writer, c *coll
 		warnUserOnlyJournal(stderr)
 	}
 	return 0
+}
+
+// cmdCompare contrasts two boots: a current (later) boot against an earlier
+// baseline. By default both come from the journal -- the current boot (--boot,
+// default 0) and the baseline (--against, default -1) -- so `bootlore compare`
+// with no flags answers "how does this boot compare to the previous one?". Each
+// side can instead be read from a captured file (--input, --against-input), which
+// is also how journal-less environments test it. It does not read stdin: two
+// boots cannot share one pipe.
+func cmdCompare(args []string, stdout, stderr io.Writer, c *collector.Collector) int {
+	fs := flag.NewFlagSet("compare", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	boot := fs.String("boot", "0", "current (later) boot to read, as a journalctl -b offset")
+	against := fs.String("against", "-1", "baseline (earlier) boot to read, as a journalctl -b offset")
+	input := fs.String("input", "", "read the current boot's journal JSON from this file")
+	againstInput := fs.String("against-input", "", "read the baseline boot's journal JSON from this file")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	current, err := collectBoot(*input, *boot, c)
+	if err != nil {
+		reportCompareError(err, stderr)
+		return 1
+	}
+	baseline, err := collectBoot(*againstInput, *against, c)
+	if err != nil {
+		reportCompareError(err, stderr)
+		return 1
+	}
+
+	out := bufio.NewWriter(stdout)
+	defer out.Flush()
+	fmt.Fprintln(out, compare.Format(compare.Compare(interpretAll(baseline), interpretAll(current))))
+	return 0
+}
+
+// collectBoot reads one side of a comparison: a captured file when input is set,
+// otherwise the given boot from the journal.
+func collectBoot(input, boot string, c *collector.Collector) ([]event.Event, error) {
+	if input != "" {
+		f, err := os.Open(input)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		return journal.ParseWithOrigin(f, event.OriginHistorical)
+	}
+	return c.Collect(context.Background(), collector.Options{Boot: boot})
+}
+
+// reportCompareError prints a collection failure for compare. Unlike the other
+// commands it cannot suggest piping (a comparison needs two boots), so its hint
+// points at capturing each boot to a file instead.
+func reportCompareError(err error, stderr io.Writer) {
+	fmt.Fprintf(stderr, "bootlore: %v\n", err)
+	if errors.Is(err, collector.ErrBackendUnavailable) {
+		fmt.Fprintln(stderr, "hint: capture each boot with `journalctl -b OFFSET -o json > boot.json`, then pass them with --input and --against-input")
+	}
+}
+
+// interpretAll interprets every event in a boot, filling Category and
+// Significance, without modifying the input slice.
+func interpretAll(raw []event.Event) []event.Event {
+	out := make([]event.Event, len(raw))
+	for i, e := range raw {
+		out[i] = interpret.Interpret(e)
+	}
+	return out
 }
 
 // bodyRenderer maps a --view value onto the body rendering function used by the

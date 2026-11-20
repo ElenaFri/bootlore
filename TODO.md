@@ -32,7 +32,7 @@
 - [x] Implement boot summary
 - [x] Identify failed and slow systemd services
 - [x] Provide boot duration and timing information
-- [ ] Compare successive boot sessions
+- [x] Compare successive boot sessions
 - [ ] Export diagnostic reports
 - [ ] Add a system compatibility and permissions check (`doctor`)
 

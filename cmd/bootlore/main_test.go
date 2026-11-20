@@ -960,3 +960,94 @@ func TestTimingBadFlagFails(t *testing.T) {
 		t.Errorf("exit code = %d, want 2", code)
 	}
 }
+
+// --- compare command ---
+
+// cupsFailureEntry is a failed unit distinct from bluetooth.service, so the two
+// boots in a comparison have different failures to diff.
+const cupsFailureEntry = `{"__REALTIME_TIMESTAMP":"1700000002000000","PRIORITY":"4","SYSLOG_IDENTIFIER":"systemd","_PID":"1","_SYSTEMD_UNIT":"cups.service","MESSAGE":"cups.service: Failed with result 'exit-code'."}`
+
+func TestCompareFromFiles(t *testing.T) {
+	dir := t.TempDir()
+	baseline := filepath.Join(dir, "baseline.json")
+	current := filepath.Join(dir, "current.json")
+	if err := os.WriteFile(baseline, []byte(failureEntry), 0o644); err != nil {
+		t.Fatalf("writing baseline: %v", err)
+	}
+	if err := os.WriteFile(current, []byte(cupsFailureEntry), 0o644); err != nil {
+		t.Fatalf("writing current: %v", err)
+	}
+
+	stdout, stderr, code := runCLI([]string{"compare", "--input", current, "--against-input", baseline}, strings.NewReader(""), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "Boot comparison") {
+		t.Errorf("missing comparison header:\n%s", stdout)
+	}
+	if !regexp.MustCompile(`fixed:\s+bluetooth\.service`).MatchString(stdout) {
+		t.Errorf("bluetooth.service should be reported as fixed:\n%s", stdout)
+	}
+	if !regexp.MustCompile(`new:\s+cups\.service`).MatchString(stdout) {
+		t.Errorf("cups.service should be reported as newly failing:\n%s", stdout)
+	}
+}
+
+// With no file flags, compare reads two boots from the journal: the current boot
+// (--boot, default 0) and the baseline (--against, default -1).
+func TestCompareFromJournalUsesBothBoots(t *testing.T) {
+	sr := &collectortest.SequenceRunner{Outputs: []string{cupsFailureEntry, failureEntry}}
+	var out, errb bytes.Buffer
+	code := runWith([]string{"compare"}, strings.NewReader(""), &out, &errb, collector.New(sr))
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, errb.String())
+	}
+	if len(sr.GotArgs) != 2 {
+		t.Fatalf("got %d journal calls, want 2", len(sr.GotArgs))
+	}
+	if !strings.Contains(strings.Join(sr.GotArgs[0], " "), "-b 0") {
+		t.Errorf("first call should read the current boot (-b 0), got %v", sr.GotArgs[0])
+	}
+	if !strings.Contains(strings.Join(sr.GotArgs[1], " "), "-b -1") {
+		t.Errorf("second call should read the baseline boot (-b -1), got %v", sr.GotArgs[1])
+	}
+	if !regexp.MustCompile(`fixed:\s+bluetooth\.service`).MatchString(out.String()) ||
+		!regexp.MustCompile(`new:\s+cups\.service`).MatchString(out.String()) {
+		t.Errorf("journal comparison should diff the two boots' failures:\n%s", out.String())
+	}
+}
+
+// When the journal backend is unavailable, compare cannot pipe (it needs two
+// boots), so its hint points at capturing files instead.
+func TestCompareBackendUnavailableShowsCaptureHint(t *testing.T) {
+	fr := &collectortest.FakeRunner{Err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
+	_, stderr, code := runCLI([]string{"compare"}, strings.NewReader(""), fr)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "hint:") || !strings.Contains(stderr, "--against-input") {
+		t.Errorf("stderr should hint at capturing files with --against-input, got %q", stderr)
+	}
+}
+
+func TestCompareAgainstInputFileError(t *testing.T) {
+	dir := t.TempDir()
+	current := filepath.Join(dir, "current.json")
+	if err := os.WriteFile(current, []byte(cupsFailureEntry), 0o644); err != nil {
+		t.Fatalf("writing current: %v", err)
+	}
+	_, stderr, code := runCLI([]string{"compare", "--input", current, "--against-input", "/nonexistent/boot.json"}, strings.NewReader(""), &collectortest.FakeRunner{})
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "/nonexistent/boot.json") {
+		t.Errorf("stderr should mention the missing file, got %q", stderr)
+	}
+}
+
+func TestCompareBadFlagFails(t *testing.T) {
+	_, _, code := runCLI([]string{"compare", "--nope"}, strings.NewReader(""), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+}

@@ -170,3 +170,24 @@ func TestFormatEmptyReport(t *testing.T) {
 		t.Errorf("empty report should not show an observation span:\n%s", out)
 	}
 }
+
+// BootLabel names a single boot, reports when the events span several, and says
+// so when none carried an identifier.
+func TestBootLabel(t *testing.T) {
+	cases := []struct {
+		name string
+		s    Summary
+		want string
+	}{
+		{"single", Summary{BootID: "boot-a", Boots: 1}, "boot-a"},
+		{"multiple", Summary{Boots: 3}, "(multiple: 3 boots)"},
+		{"unknown", Summary{Boots: 0}, "(unknown)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := BootLabel(tc.s); got != tc.want {
+				t.Errorf("BootLabel = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

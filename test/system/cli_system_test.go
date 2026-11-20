@@ -237,6 +237,74 @@ func TestTimingWarnsUserOnlyJournal(t *testing.T) {
 	}
 }
 
+// compare contrasts two captured boots: the main fixture (9f1c2d, bluetooth
+// failed) as the current boot against the user-session fixture (c0ffee,
+// xdg-desktop-portal failed) as the baseline.
+func TestCompareFromFiles(t *testing.T) {
+	baseline := filepath.Join(moduleRoot, "test", "testdata", "user-session-journal.json")
+	res := runBootlore(t, "", "compare", "--input", fixturePath, "--against-input", baseline)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "Boot comparison") {
+		t.Errorf("missing comparison header:\n%s", res.stdout)
+	}
+	if !regexp.MustCompile(`Boot ID:\s+c0ffee\s+9f1c2d`).MatchString(res.stdout) {
+		t.Errorf("comparison should name both boots (baseline c0ffee, current 9f1c2d):\n%s", res.stdout)
+	}
+	if !regexp.MustCompile(`fixed:\s+xdg-desktop-portal\.service`).MatchString(res.stdout) {
+		t.Errorf("xdg-desktop-portal.service should be reported as fixed:\n%s", res.stdout)
+	}
+	if !regexp.MustCompile(`new:\s+bluetooth\.service`).MatchString(res.stdout) {
+		t.Errorf("bluetooth.service should be reported as newly failing:\n%s", res.stdout)
+	}
+}
+
+// Transient run-* units (systemd-run/run0) must be kept out of the service diff
+// yet counted, end to end: the real units are diffed, the throwaway ones are not
+// named, and the transient note reports how many were excluded per side.
+func TestCompareExcludesTransientUnits(t *testing.T) {
+	baseline := filepath.Join(moduleRoot, "test", "testdata", "compare-transient-baseline.json")
+	current := filepath.Join(moduleRoot, "test", "testdata", "compare-transient-current.json")
+	res := runBootlore(t, "", "compare", "--input", current, "--against-input", baseline)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !regexp.MustCompile(`fixed:\s+bluetooth\.service`).MatchString(res.stdout) {
+		t.Errorf("bluetooth.service should be reported as fixed:\n%s", res.stdout)
+	}
+	if !regexp.MustCompile(`new:\s+cups\.service`).MatchString(res.stdout) {
+		t.Errorf("cups.service should be reported as newly failing:\n%s", res.stdout)
+	}
+	if strings.Contains(res.stdout, "run-p100") || strings.Contains(res.stdout, "run-p300") || strings.Contains(res.stdout, "run-p500") {
+		t.Errorf("transient run-* units should not appear in the diff:\n%s", res.stdout)
+	}
+	if !regexp.MustCompile(`transient:\s+1 baseline, 2 current`).MatchString(res.stdout) {
+		t.Errorf("report should count the excluded transient units (1 baseline, 2 current):\n%s", res.stdout)
+	}
+}
+
+// A flat duration delta can mislead: a boot that is slower overall may be slower
+// only in firmware or the boot loader, with Linux userspace unchanged. End to
+// end, the per-phase breakdown must expose that so the user does not blame Linux.
+func TestCompareBreaksDownPhases(t *testing.T) {
+	baseline := filepath.Join(moduleRoot, "test", "testdata", "compare-phases-baseline.json")
+	current := filepath.Join(moduleRoot, "test", "testdata", "compare-phases-current.json")
+	res := runBootlore(t, "", "compare", "--input", current, "--against-input", baseline)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !regexp.MustCompile(`Duration:\s+14\.170s\s+59\.470s\s+\+45\.300s\s+\(slower\)`).MatchString(res.stdout) {
+		t.Errorf("duration delta should be reported:\n%s", res.stdout)
+	}
+	if !regexp.MustCompile(`firmware:\s+5\.000s\s+43\.400s\s+\+38\.400s`).MatchString(res.stdout) {
+		t.Errorf("firmware should carry the bulk of the slowdown:\n%s", res.stdout)
+	}
+	if !regexp.MustCompile(`userspace:\s+3\.900s\s+3\.900s\s+0\.000s`).MatchString(res.stdout) {
+		t.Errorf("userspace should be unchanged, proving Linux did not regress:\n%s", res.stdout)
+	}
+}
+
 func TestVersion(t *testing.T) {
 	res := runBootlore(t, "", "version")
 	if res.code != 0 {
