@@ -30,6 +30,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/ElenaFri/bootlore/internal/collector"
 	"github.com/ElenaFri/bootlore/internal/compare"
@@ -39,6 +40,7 @@ import (
 	"github.com/ElenaFri/bootlore/internal/journal"
 	"github.com/ElenaFri/bootlore/internal/knowledge"
 	"github.com/ElenaFri/bootlore/internal/render"
+	"github.com/ElenaFri/bootlore/internal/report"
 	"github.com/ElenaFri/bootlore/internal/services"
 	"github.com/ElenaFri/bootlore/internal/summary"
 	"github.com/ElenaFri/bootlore/internal/timing"
@@ -85,6 +87,8 @@ func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collec
 		return cmdTiming(args[1:], stdin, stdout, stderr, c)
 	case "compare":
 		return cmdCompare(args[1:], stdout, stderr, c)
+	case "report":
+		return cmdReport(args[1:], stdin, stdout, stderr, c)
 	case "tui":
 		return cmdTui(args[1:], stdin, stdout, stderr, c)
 	case "version", "--version", "-v":
@@ -114,6 +118,7 @@ Commands:
   services   List failed systemd services and reconstructed startup timings
   timing     Report boot duration: systemd's startup summary, phases, milestones
   compare    Contrast two boots: duration, counts and service-failure changes
+  report     Export a boot's full diagnosis (summary+timing+services) to a file
   explain    Print the HUMAN view with contextual, educational explanations
   errors     Print only warnings and failures (HUMAN view by default)
   tui        Interactive boot monitor: views, navigation, filtering (needs a tty)
@@ -159,6 +164,13 @@ compare flags (contrasts a later boot against an earlier baseline):
   --input FILE           read the current boot's journal JSON from FILE
   --against-input FILE   read the baseline boot's journal JSON from FILE
 
+report flags (no --category: a report covers the whole boot):
+  --journal        read directly from the system journal (journalctl)
+  --boot OFFSET    which boot to read (default current)
+  --input FILE     read captured journal JSON (journalctl -o json) from FILE
+  --format FMT     report format: text (default), markdown or json
+  --output FILE    write the report to FILE instead of stdout
+
 explain flags:
   --level L        explanation depth: overview, technical (default) or in-depth
 
@@ -171,6 +183,8 @@ Examples:
   bootlore services
   bootlore timing
   bootlore compare
+  bootlore report --format markdown
+  bootlore report --format json --output boot-report.json
   bootlore explain --level in-depth
   bootlore errors --category storage,hardware
   journalctl -b -o json | bootlore collect
@@ -482,6 +496,72 @@ func cmdCompare(args []string, stdout, stderr io.Writer, c *collector.Collector)
 	out := bufio.NewWriter(stdout)
 	defer out.Flush()
 	fmt.Fprintln(out, compare.Format(compare.Compare(interpretAll(baseline), interpretAll(current))))
+	return 0
+}
+
+// cmdReport assembles a boot's summary, timing and systemd-service diagnosis into
+// a single diagnostic report and renders it in the chosen format: text (the
+// default), markdown (shareable, for pasting into a bug report) or json (for
+// tooling and archival). With --output it writes the report to a file instead of
+// stdout, which is the intended way to export a diagnosis. Like timing it covers
+// the whole boot and so takes no --category filter: a holistic diagnosis of a
+// single subsystem would mislead, and filtering out events would corrupt the
+// timing totals.
+func cmdReport(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	input := fs.String("input", "", "read journal JSON (journalctl -o json) from this file")
+	fromJournal := fs.Bool("journal", false, "read directly from the system journal (journalctl)")
+	boot := fs.String("boot", "", "boot to read as a journalctl -b offset (default current boot)")
+	format := fs.String("format", "text", "report format: text (default), markdown or json")
+	output := fs.String("output", "", "write the report to this file instead of stdout")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	raw, err := collectEvents(*input, *fromJournal, *boot, stdin, c)
+	if err != nil {
+		reportCollectError("report", err, stderr)
+		return 1
+	}
+
+	events := interpretAll(raw)
+	meta := report.Meta{Tool: "bootlore", Version: version, Generated: time.Now().UTC()}
+	rendered, err := report.Format(report.Build(meta, events), *format)
+	if err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		return 2
+	}
+
+	if code := emitReport(rendered, *output, stdout, stderr); code != 0 {
+		return code
+	}
+	if timing.OnlyUserSession(events) {
+		warnUserOnlyJournal(stderr)
+	}
+	return 0
+}
+
+// emitReport writes a rendered report to a file (when output is set) or to
+// stdout, each terminated by a newline. On a file export it confirms the path on
+// stderr so stdout stays empty. It returns 0 on success, or 1 on a write error
+// (already reported on stderr).
+func emitReport(rendered, output string, stdout, stderr io.Writer) int {
+	data := []byte(rendered + "\n")
+	if output != "" {
+		if err := os.WriteFile(output, data, 0o644); err != nil {
+			fmt.Fprintf(stderr, "bootlore: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stderr, "bootlore: wrote report to %s\n", output)
+		return 0
+	}
+	out := bufio.NewWriter(stdout)
+	if _, err := out.Write(data); err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		return 1
+	}
+	out.Flush()
 	return 0
 }
 

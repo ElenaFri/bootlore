@@ -125,6 +125,26 @@ func categoryLabel(c event.Category) string {
 	return string(c)
 }
 
+// CategoryLabel is the exported display label for a subsystem category, so other
+// renderers (e.g. the report package) label subsystems exactly as the summary
+// does.
+func CategoryLabel(c event.Category) string {
+	return categoryLabel(c)
+}
+
+// OrderedCategories returns the subsystems that carry at least one event, in the
+// summary's stable display order. It lets other renderers reuse the same
+// ordering without duplicating it.
+func OrderedCategories(s Summary) []event.Category {
+	var out []event.Category
+	for _, cat := range categoryOrder {
+		if s.Categories[cat] > 0 {
+			out = append(out, cat)
+		}
+	}
+	return out
+}
+
 // BootLabel returns a display label for a summary's boot identity: the boot ID
 // when the events describe a single boot, a count when they span several, or
 // "(unknown)" when no event carried an identifier.

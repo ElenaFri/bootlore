@@ -190,6 +190,42 @@ instead of the journal.
 Read the baseline boot's journal JSON from
 .I FILE
 instead of the journal.
+.SS report
+Assemble a boot's full diagnosis \(em its
+.B summary ,
+its
+.B timing
+and its
+.B services
+report \(em into a single document and render it in the requested format. The
+figures are exactly those the individual commands report. Like
+.B timing
+it covers the whole boot and so takes no
+.B \-\-category
+filter: a holistic diagnosis of a single subsystem would mislead, and filtering
+out events would corrupt the timing totals. If BootLore can see only your
+user\-session journal it prints the same note on standard error as
+.BR timing .
+.TP
+.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET
+Same sources and boot selection as
+.BR collect .
+.TP
+.BI \-\-format= FMT
+Report format:
+.B text
+(the default \(em the three console sub\-reports under a provenance header),
+.B markdown
+(a shareable document with headings and tables, for pasting into a bug report)
+or
+.B json
+(a stable, documented schema for tooling and archival).
+.TP
+.BI \-\-output= FILE
+Write the report to
+.I FILE
+instead of standard output, confirming the path on standard error. This is the
+intended way to export a diagnosis.
 .SS explain
 Print events with contextual, educational explanations indented under each
 one, at the requested depth:
@@ -345,6 +381,14 @@ See whether this boot got faster or more reliable than the previous one:
 .RS
 .nf
 bootlore compare
+.fi
+.RE
+.PP
+Export the current boot's full diagnosis as JSON for tooling:
+.PP
+.RS
+.nf
+bootlore report \-\-format json \-\-output boot\-report.json
 .fi
 .RE
 .PP

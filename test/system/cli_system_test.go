@@ -9,6 +9,7 @@ package system
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -302,6 +303,90 @@ func TestCompareBreaksDownPhases(t *testing.T) {
 	}
 	if !regexp.MustCompile(`userspace:\s+3\.900s\s+3\.900s\s+0\.000s`).MatchString(res.stdout) {
 		t.Errorf("userspace should be unchanged, proving Linux did not regress:\n%s", res.stdout)
+	}
+}
+
+// The report command bundles summary, timing and services into one document.
+// The default text rendering must carry every section end to end.
+func TestReportTextFromFile(t *testing.T) {
+	res := runBootlore(t, "", "report", "--input", fixturePath)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	for _, want := range []string{"BootLore diagnostic report", "Boot summary", "Boot timing", "bluetooth.service"} {
+		if !strings.Contains(res.stdout, want) {
+			t.Errorf("report missing %q:\n%s", want, res.stdout)
+		}
+	}
+}
+
+// --format json must emit a valid, documented document carrying the same
+// diagnosis as the console report.
+func TestReportJSONFromFile(t *testing.T) {
+	res := runBootlore(t, "", "report", "--input", fixturePath, "--format", "json")
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !json.Valid([]byte(res.stdout)) {
+		t.Fatalf("report is not valid JSON:\n%s", res.stdout)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(res.stdout), &got); err != nil {
+		t.Fatalf("decoding JSON report: %v", err)
+	}
+	boot := got["boot"].(map[string]any)
+	if boot["events"] != float64(5) || boot["failures"] != float64(1) {
+		t.Errorf("boot = %+v, want events 5 / failures 1", boot)
+	}
+}
+
+// --format markdown must produce a shareable document with real headings.
+func TestReportMarkdownFromFile(t *testing.T) {
+	res := runBootlore(t, "", "report", "--input", fixturePath, "--format", "markdown")
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.HasPrefix(res.stdout, "# BootLore diagnostic report") {
+		t.Errorf("markdown report should start with the top-level heading:\n%s", res.stdout)
+	}
+	for _, want := range []string{"## Summary", "## Services", "bluetooth.service"} {
+		if !strings.Contains(res.stdout, want) {
+			t.Errorf("markdown report missing %q:\n%s", want, res.stdout)
+		}
+	}
+}
+
+// --output exports the report to a file: stdout stays empty, stderr confirms the
+// path, and the file holds the rendered document.
+func TestReportToFile(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "boot-report.json")
+	res := runBootlore(t, "", "report", "--input", fixturePath, "--format", "json", "--output", out)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if strings.TrimSpace(res.stdout) != "" {
+		t.Errorf("stdout should be empty when exporting to a file, got %q", res.stdout)
+	}
+	if !strings.Contains(res.stderr, out) {
+		t.Errorf("stderr should confirm the export path %q:\n%s", out, res.stderr)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("reading exported report: %v", err)
+	}
+	if !json.Valid(data) {
+		t.Errorf("exported report is not valid JSON:\n%s", data)
+	}
+}
+
+// An unknown --format is a usage error (exit 2).
+func TestReportUnknownFormatFails(t *testing.T) {
+	res := runBootlore(t, "", "report", "--input", fixturePath, "--format", "yaml")
+	if res.code != 2 {
+		t.Fatalf("exit code = %d, want 2 (stderr = %q)", res.code, res.stderr)
+	}
+	if res.stderr == "" {
+		t.Error("expected an error message on stderr")
 	}
 }
 

@@ -34,6 +34,7 @@ make build
 | `bootlore services` | Failed systemd services and reconstructed startup timings |
 | `bootlore timing` | Boot duration: systemd's startup summary, phases and milestones |
 | `bootlore compare` | Contrast two boots: duration (broken down per phase), counts and service-failure changes |
+| `bootlore report` | Export a boot's full diagnosis (summary + timing + services) as text, markdown or JSON |
 | `bootlore explain` | Events with educational explanations at three depths |
 | `bootlore errors` | Only warnings and failures — what went wrong |
 | `bootlore tui` | Interactive monitor: views, navigation, filtering, detail (needs a tty) |
@@ -84,6 +85,10 @@ back in), or pipe the system journal once with
 # (duration broken down per phase, so a firmware/loader slowdown
 #  is never mistaken for a Linux regression)
 ./bin/bootlore compare
+
+# Export the current boot's full diagnosis for a bug report or tooling
+./bin/bootlore report --format markdown
+./bin/bootlore report --format json --output boot-report.json
 ```
 
 ## Development
