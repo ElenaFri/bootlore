@@ -247,6 +247,30 @@ func TestFromSystemManager(t *testing.T) {
 	}
 }
 
+// OnlyUserSession reports true exactly when every event comes from a per-user
+// manager, which means the caller cannot see the system journal at all. An empty
+// slice is inconclusive (false), and a single system event is enough to prove
+// the system journal is visible.
+func TestOnlyUserSession(t *testing.T) {
+	if OnlyUserSession(nil) {
+		t.Error("OnlyUserSession(nil) = true, want false (nothing to conclude)")
+	}
+	userOnly := []event.Event{
+		userManagerEvent("Startup finished in 99ms.", 99*time.Millisecond),
+		userManagerEvent("Reached target Paths.", 7*time.Second),
+	}
+	if !OnlyUserSession(userOnly) {
+		t.Error("OnlyUserSession(user-only) = false, want true")
+	}
+	mixed := []event.Event{
+		userManagerEvent("Reached target Paths.", 7*time.Second),
+		systemManagerEvent("Reached target Basic System.", 3*time.Second),
+	}
+	if OnlyUserSession(mixed) {
+		t.Error("OnlyUserSession(with a system event) = true, want false")
+	}
+}
+
 func TestAnalyzeUsesSystemdSummary(t *testing.T) {
 	ti := Analyze(timedBoot())
 

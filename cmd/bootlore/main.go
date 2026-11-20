@@ -221,6 +221,15 @@ func reportCollectError(cmd string, err error, stderr io.Writer) {
 	}
 }
 
+// warnUserOnlyJournal explains, on stderr, that only the caller's user-session
+// journal was visible, so the system boot could not be measured, and points to
+// the two usual remedies.
+func warnUserOnlyJournal(stderr io.Writer) {
+	fmt.Fprintln(stderr, "note: only your user-session journal is visible, so the system boot cannot be measured.")
+	fmt.Fprintln(stderr, "hint: join the systemd-journal group (sudo usermod -aG systemd-journal $USER, then log back in),")
+	fmt.Fprintln(stderr, "      or read the system journal directly: sudo journalctl -b -o json | bootlore timing")
+}
+
 func cmdCollect(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
 	fs := flag.NewFlagSet("collect", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -423,8 +432,11 @@ func cmdTiming(args []string, stdin io.Reader, stdout, stderr io.Writer, c *coll
 	}
 
 	out := bufio.NewWriter(stdout)
-	defer out.Flush()
 	fmt.Fprintln(out, timing.Format(timing.Analyze(events)))
+	out.Flush()
+	if timing.OnlyUserSession(events) {
+		warnUserOnlyJournal(stderr)
+	}
 	return 0
 }
 

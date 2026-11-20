@@ -218,6 +218,25 @@ func TestTimingIgnoresUserManager(t *testing.T) {
 	}
 }
 
+// When every event comes from the per-user manager, the real binary must warn on
+// stderr that only the user-session journal is visible and point at the
+// systemd-journal group, rather than passing a meaningless total off as a boot
+// time on stdout.
+func TestTimingWarnsUserOnlyJournal(t *testing.T) {
+	stdin := `{"__MONOTONIC_TIMESTAMP":"99000","_UID":"1000","_SYSTEMD_UNIT":"user@1000.service","_SYSTEMD_USER_UNIT":"init.scope","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Startup finished in 99ms."}
+{"__MONOTONIC_TIMESTAMP":"7388586","_UID":"1000","_SYSTEMD_UNIT":"user@1000.service","_SYSTEMD_USER_UNIT":"init.scope","USER_UNIT":"paths.target","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Reached target Paths."}`
+	res := runBootlore(t, stdin, "timing")
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stderr, "systemd-journal") {
+		t.Errorf("stderr should point at the systemd-journal group, got %q", res.stderr)
+	}
+	if strings.Contains(res.stdout, "Paths") {
+		t.Errorf("user-session target leaked into the report:\n%s", res.stdout)
+	}
+}
+
 func TestVersion(t *testing.T) {
 	res := runBootlore(t, "", "version")
 	if res.code != 0 {

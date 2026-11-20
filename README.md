@@ -47,6 +47,13 @@ only the events of the given subsystems (`kernel`, `hardware`, `storage`,
 what BootLore could not classify); it composes with every command, e.g. with
 `errors`.
 
+Reading the system journal requires permission: if your account is not in the
+`systemd-journal` group, `journalctl` shows only your own user-session journal.
+BootLore then sees no system boot, so `bootlore timing` cannot measure it and
+says so. Join the group with `sudo usermod -aG systemd-journal $USER` (then log
+back in), or pipe the system journal once with
+`sudo journalctl -b -o json | bootlore timing`.
+
 ```sh
 # Read the current boot straight from the system journal (LOG view)
 ./bin/bootlore collect

@@ -886,6 +886,41 @@ func TestTimingReportsTotalPhasesAndMilestones(t *testing.T) {
 	}
 }
 
+// userSessionTimingEntries mimics what an unprivileged user (not in the
+// systemd-journal group) sees: only their per-user manager's journal, with no
+// system startup summary and only user-session targets.
+const userSessionTimingEntries = `{"__MONOTONIC_TIMESTAMP":"99764","_UID":"1000","_SYSTEMD_UNIT":"user@1000.service","_SYSTEMD_USER_UNIT":"init.scope","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Startup finished in 99ms."}
+{"__MONOTONIC_TIMESTAMP":"7388586","_UID":"1000","_SYSTEMD_UNIT":"user@1000.service","_SYSTEMD_USER_UNIT":"init.scope","USER_UNIT":"paths.target","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Reached target Paths."}`
+
+// When only the user-session journal is visible, timing cannot measure the
+// system boot, so it must warn and point the user at the systemd-journal group
+// rather than silently presenting a meaningless observed total as if it were a
+// boot time.
+func TestTimingWarnsOnUserOnlyJournal(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"timing"}, strings.NewReader(userSessionTimingEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "systemd-journal") {
+		t.Errorf("stderr should point to the systemd-journal group, got %q", stderr)
+	}
+	// The user-session summary and targets must not leak into the report.
+	if strings.Contains(stdout, "99ms") || strings.Contains(stdout, "Paths") {
+		t.Errorf("user-session data leaked into the report:\n%s", stdout)
+	}
+}
+
+// A journal that includes system-manager events must not trigger the warning.
+func TestTimingNoWarnWithSystemJournal(t *testing.T) {
+	_, stderr, code := runCLI([]string{"timing"}, strings.NewReader(timingEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if strings.Contains(stderr, "systemd-journal") {
+		t.Errorf("system journal should not warn about systemd-journal, got %q", stderr)
+	}
+}
+
 func TestTimingEmptyInput(t *testing.T) {
 	stdout, stderr, code := runCLI([]string{"timing"}, strings.NewReader(""), &collectortest.FakeRunner{})
 	if code != 0 {

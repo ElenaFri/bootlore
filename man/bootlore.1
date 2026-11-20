@@ -124,6 +124,14 @@ total as observed rather than reported, so it never presents an estimate as a
 fact. It also lists the boot targets reached
 .RB ( "Reached target ..." )
 at their offset since boot.
+.PP
+Timing reports the system boot only; the per\-user manager's own summary and
+session targets are ignored.
+If BootLore can see only your user\-session journal \(em usually because your
+account is not in the
+.B systemd\-journal
+group \(em it cannot measure the system boot and prints a note on standard
+error explaining how to fix it.
 .TP
 .BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET
 Same sources and boot selection as

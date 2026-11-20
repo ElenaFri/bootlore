@@ -121,6 +121,24 @@ func fromSystemManager(e event.Event) bool {
 	return true
 }
 
+// OnlyUserSession reports whether events come exclusively from a per-user systemd
+// manager, i.e. the caller is seeing only its own session journal and not the
+// system journal. It is false for an empty slice (nothing can be concluded) and
+// false as soon as a single system-manager event is present. Commands use it to
+// warn that the system boot cannot be measured, which typically means the user
+// is not in the systemd-journal group.
+func OnlyUserSession(events []event.Event) bool {
+	if len(events) == 0 {
+		return false
+	}
+	for _, e := range events {
+		if fromSystemManager(e) {
+			return false
+		}
+	}
+	return true
+}
+
 // ParseStartupSummary parses a systemd "Startup finished in ..." message into its
 // per-phase durations and total. It reports false when msg is not such a line or
 // carries no parseable total.
