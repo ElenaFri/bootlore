@@ -139,6 +139,114 @@ func timedBoot() []event.Event {
 	}
 }
 
+// userManagerEvent is an event emitted by the per-user systemd manager
+// (user@UID.service), which must never contribute to system boot timing.
+func userManagerEvent(msg string, at time.Duration) event.Event {
+	return event.Event{
+		Message:            msg,
+		MonotonicTimestamp: at,
+		Unit:               "user@1000.service",
+		Fields: map[string]string{
+			"_UID":               "1000",
+			"_SYSTEMD_USER_UNIT": "init.scope",
+			"_SYSTEMD_UNIT":      "user@1000.service",
+		},
+	}
+}
+
+// systemManagerEvent is an event emitted by the system manager (PID 1, UID 0),
+// the only source that defines the system boot's timing.
+func systemManagerEvent(msg string, at time.Duration) event.Event {
+	return event.Event{
+		Message:            msg,
+		MonotonicTimestamp: at,
+		PID:                1,
+		Unit:               "init.scope",
+	}
+}
+
+// The per-user manager also prints "Startup finished in ..." for the user
+// session (e.g. "99ms"), but that is not the system boot. Analyze must ignore
+// it entirely: no summary, and no user "Reached target" milestones.
+func TestAnalyzeIgnoresUserManagerStartupSummary(t *testing.T) {
+	events := []event.Event{
+		userManagerEvent("Startup finished in 99ms.", 99*time.Millisecond),
+		userManagerEvent("Reached target Paths.", 7389*time.Millisecond),
+		userManagerEvent("Reached target Bluetooth.", 222290*time.Millisecond),
+	}
+	ti := Analyze(events)
+
+	if ti.FromSummary {
+		t.Error("FromSummary = true, want false (the user manager's summary is not the system boot)")
+	}
+	if ti.Total != 222290*time.Millisecond {
+		t.Errorf("Total = %v, want 222.290s (largest observed offset)", ti.Total)
+	}
+	if len(ti.Milestones) != 0 {
+		t.Errorf("Milestones = %+v, want none (user targets are not system milestones)", ti.Milestones)
+	}
+}
+
+// When both managers report a startup summary, the system manager's total wins,
+// even if the user manager's line appears first in the stream.
+func TestAnalyzePrefersSystemManagerSummaryOverUser(t *testing.T) {
+	events := []event.Event{
+		userManagerEvent("Startup finished in 99ms.", 99*time.Millisecond),
+		systemManagerEvent("Startup finished in 1.000s (kernel) + 4.000s (userspace) = 5.000s", 5*time.Second),
+	}
+	ti := Analyze(events)
+
+	if !ti.FromSummary {
+		t.Error("FromSummary = false, want true (the system manager reported a summary)")
+	}
+	if ti.Total != 5*time.Second {
+		t.Errorf("Total = %v, want 5s (system manager), not 99ms (user manager)", ti.Total)
+	}
+}
+
+// Only the system manager's milestones are kept; user-session targets are
+// dropped even when they share a name with a system target.
+func TestAnalyzeKeepsOnlySystemMilestones(t *testing.T) {
+	events := []event.Event{
+		systemManagerEvent("Reached target Basic System.", 3*time.Second),
+		userManagerEvent("Reached target Basic System.", 7*time.Second),
+		userManagerEvent("Reached target Main User Target.", 8*time.Second),
+	}
+	ti := Analyze(events)
+
+	want := []Milestone{{"Basic System", 3 * time.Second}}
+	if len(ti.Milestones) != len(want) {
+		t.Fatalf("Milestones = %+v, want %+v", ti.Milestones, want)
+	}
+	if ti.Milestones[0] != want[0] {
+		t.Errorf("Milestones[0] = %+v, want %+v", ti.Milestones[0], want[0])
+	}
+}
+
+// fromSystemManager must recognise a system-manager event and reject every
+// distinct per-user signal in isolation, so no single journal field can cause a
+// user-session event to be counted as the system boot.
+func TestFromSystemManager(t *testing.T) {
+	cases := []struct {
+		name string
+		e    event.Event
+		want bool
+	}{
+		{"system manager", systemManagerEvent("x", 0), true},
+		{"bare event", event.Event{Message: "x"}, true},
+		{"root uid", event.Event{Fields: map[string]string{"_UID": "0"}}, true},
+		{"systemd user unit", event.Event{Fields: map[string]string{"_SYSTEMD_USER_UNIT": "app.service"}}, false},
+		{"user unit", event.Event{Fields: map[string]string{"USER_UNIT": "app.service"}}, false},
+		{"user@ unit", event.Event{Unit: "user@1000.service"}, false},
+		{"non-root uid", event.Event{Fields: map[string]string{"_UID": "1000"}}, false},
+	}
+	for _, c := range cases {
+		if got := fromSystemManager(c.e); got != c.want {
+			t.Errorf("%s: fromSystemManager = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestAnalyzeUsesSystemdSummary(t *testing.T) {
 	ti := Analyze(timedBoot())
 

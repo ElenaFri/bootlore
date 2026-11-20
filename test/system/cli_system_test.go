@@ -193,6 +193,31 @@ func TestTimingFromStdin(t *testing.T) {
 	}
 }
 
+// The per-user systemd manager prints its own "Startup finished" (e.g. 99ms for
+// the session) and session targets at large offsets since boot. End to end,
+// timing must report the SYSTEM manager's total and milestones only, never the
+// user session's, so a short session total cannot sit beside boot-long targets.
+func TestTimingIgnoresUserManager(t *testing.T) {
+	stdin := `{"__MONOTONIC_TIMESTAMP":"99000","_UID":"1000","_SYSTEMD_UNIT":"user@1000.service","_SYSTEMD_USER_UNIT":"init.scope","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Startup finished in 99ms."}
+{"__MONOTONIC_TIMESTAMP":"222290000","_UID":"1000","_SYSTEMD_UNIT":"user@1000.service","_SYSTEMD_USER_UNIT":"init.scope","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Reached target Bluetooth."}
+{"__MONOTONIC_TIMESTAMP":"2000000","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Reached target Basic System."}
+{"__MONOTONIC_TIMESTAMP":"5000000","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Startup finished in 1.500s (kernel) + 3.500s (userspace) = 5.000s"}`
+	res := runBootlore(t, stdin, "timing")
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	for _, re := range []string{`Total:\s+5\.000s`, `reported by systemd`, `\+2\.000s\s+Basic System`} {
+		if !regexp.MustCompile(re).MatchString(res.stdout) {
+			t.Errorf("timing report does not match %q:\n%s", re, res.stdout)
+		}
+	}
+	for _, re := range []string{`99ms`, `Bluetooth`} {
+		if regexp.MustCompile(re).MatchString(res.stdout) {
+			t.Errorf("timing report must not contain user-session data %q:\n%s", re, res.stdout)
+		}
+	}
+}
+
 func TestVersion(t *testing.T) {
 	res := runBootlore(t, "", "version")
 	if res.code != 0 {

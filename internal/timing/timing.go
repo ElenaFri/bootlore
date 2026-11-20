@@ -13,6 +13,12 @@
 // Analyze also collects boot milestones from "Reached target <name>." events,
 // placed at their monotonic offset since boot, which show how the boot
 // progressed through its targets. Format renders a stable, monochrome report.
+//
+// Timing describes the SYSTEM boot only. The per-user systemd manager
+// (user@UID.service) emits its own "Startup finished" and "Reached target"
+// lines for each session; those belong to the user session, not the machine's
+// boot, so Analyze ignores them to avoid mixing a short user-session total with
+// system milestones measured since boot.
 package timing
 
 import (
@@ -61,11 +67,17 @@ func Analyze(events []event.Event) Timing {
 	var maxOffset time.Duration
 
 	for _, e := range events {
+		// The observed-offset fallback honestly reports the latest offset seen
+		// across all events, so it is measured before filtering.
 		if e.MonotonicTimestamp > maxOffset {
 			maxOffset = e.MonotonicTimestamp
 		}
-		// Keep the first startup summary: the system manager reports it before
-		// any per-user manager does.
+		// Only the system manager defines the system boot. Per-user managers
+		// emit their own summary and targets for each session; ignore them so a
+		// short user-session total never masquerades as the system boot.
+		if !fromSystemManager(e) {
+			continue
+		}
 		if !t.FromSummary {
 			if phases, total, ok := ParseStartupSummary(e.Message); ok {
 				t.Phases = phases
@@ -91,6 +103,23 @@ const (
 	startupPrefix = "Startup finished in "
 	targetPrefix  = "Reached target "
 )
+
+// fromSystemManager reports whether e was emitted by the system manager (PID 1,
+// UID 0) rather than a per-user systemd manager. It errs toward the system
+// manager: an event is treated as a user-session event only when it carries a
+// clear per-user signal.
+func fromSystemManager(e event.Event) bool {
+	if e.Fields["_SYSTEMD_USER_UNIT"] != "" || e.Fields["USER_UNIT"] != "" {
+		return false
+	}
+	if strings.HasPrefix(e.Unit, "user@") {
+		return false
+	}
+	if uid := e.Fields["_UID"]; uid != "" && uid != "0" {
+		return false
+	}
+	return true
+}
 
 // ParseStartupSummary parses a systemd "Startup finished in ..." message into its
 // per-phase durations and total. It reports false when msg is not such a line or
