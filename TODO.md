@@ -31,7 +31,7 @@
 
 - [x] Implement boot summary
 - [x] Identify failed and slow systemd services
-- [ ] Provide boot duration and timing information
+- [x] Provide boot duration and timing information
 - [ ] Compare successive boot sessions
 - [ ] Export diagnostic reports
 - [ ] Add a system compatibility and permissions check (`doctor`)

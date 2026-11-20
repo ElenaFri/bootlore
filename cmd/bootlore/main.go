@@ -40,6 +40,7 @@ import (
 	"github.com/ElenaFri/bootlore/internal/render"
 	"github.com/ElenaFri/bootlore/internal/services"
 	"github.com/ElenaFri/bootlore/internal/summary"
+	"github.com/ElenaFri/bootlore/internal/timing"
 	"github.com/ElenaFri/bootlore/internal/tui"
 )
 
@@ -79,6 +80,8 @@ func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collec
 		return cmdSummary(args[1:], stdin, stdout, stderr, c)
 	case "services":
 		return cmdServices(args[1:], stdin, stdout, stderr, c)
+	case "timing":
+		return cmdTiming(args[1:], stdin, stdout, stderr, c)
 	case "tui":
 		return cmdTui(args[1:], stdin, stdout, stderr, c)
 	case "version", "--version", "-v":
@@ -106,6 +109,7 @@ Commands:
   timeline   Show the boot as a chronological timeline (+offsets since boot)
   summary    Summarize a boot: counts, warnings, failures, timing, subsystems
   services   List failed systemd services and reconstructed startup timings
+  timing     Report boot duration: systemd's startup summary, phases, milestones
   explain    Print the HUMAN view with contextual, educational explanations
   errors     Print only warnings and failures (HUMAN view by default)
   tui        Interactive boot monitor: views, navigation, filtering (needs a tty)
@@ -140,6 +144,11 @@ tui keys:
   j/k, up/down navigate (scroll, in the detail) · g/G top/bottom · pgup/pgdn page
   / filter by category · Esc clear/back · q quit
 
+timing flags (no --category: it would drop the startup summary line):
+  --journal        read directly from the system journal (journalctl)
+  --boot OFFSET    which boot to read (default current)
+  --input FILE     read captured journal JSON (journalctl -o json) from FILE
+
 explain flags:
   --level L        explanation depth: overview, technical (default) or in-depth
 
@@ -150,6 +159,7 @@ Examples:
   bootlore timeline
   bootlore summary
   bootlore services
+  bootlore timing
   bootlore explain --level in-depth
   bootlore errors --category storage,hardware
   journalctl -b -o json | bootlore collect
@@ -189,10 +199,7 @@ func (r *readFlags) events(cmd string, stdin io.Reader, stderr io.Writer, c *col
 
 	raw, err := collectEvents(*r.input, *r.fromJournal, *r.boot, stdin, c)
 	if err != nil {
-		fmt.Fprintf(stderr, "bootlore: %v\n", err)
-		if errors.Is(err, collector.ErrBackendUnavailable) {
-			fmt.Fprintf(stderr, "hint: pipe journal data instead, e.g. `journalctl -b -o json | bootlore %s`\n", cmd)
-		}
+		reportCollectError(cmd, err, stderr)
 		return nil, 1, false
 	}
 
@@ -203,6 +210,15 @@ func (r *readFlags) events(cmd string, stdin io.Reader, stderr io.Writer, c *col
 		}
 	}
 	return events, 0, true
+}
+
+// reportCollectError prints a collection failure on stderr, adding a hint on how
+// to pipe journal data when the journal backend itself is unavailable.
+func reportCollectError(cmd string, err error, stderr io.Writer) {
+	fmt.Fprintf(stderr, "bootlore: %v\n", err)
+	if errors.Is(err, collector.ErrBackendUnavailable) {
+		fmt.Fprintf(stderr, "hint: pipe journal data instead, e.g. `journalctl -b -o json | bootlore %s`\n", cmd)
+	}
 }
 
 func cmdCollect(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
@@ -381,6 +397,34 @@ func cmdSummary(args []string, stdin io.Reader, stdout, stderr io.Writer, c *col
 	out := bufio.NewWriter(stdout)
 	defer out.Flush()
 	fmt.Fprintln(out, summary.Format(summary.Summarize(events)))
+	return 0
+}
+
+// cmdTiming reconstructs and reports a boot's duration and timing: systemd's
+// authoritative startup summary when present, its per-phase breakdown, and the
+// targets reached along the way. It works on raw (uninterpreted) events, since
+// timing only reads messages and monotonic offsets, and it deliberately omits
+// the --category filter: dropping the systemd summary line would corrupt the
+// totals.
+func cmdTiming(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collector.Collector) int {
+	fs := flag.NewFlagSet("timing", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	input := fs.String("input", "", "read journal JSON (journalctl -o json) from this file")
+	fromJournal := fs.Bool("journal", false, "read directly from the system journal (journalctl)")
+	boot := fs.String("boot", "", "boot to read as a journalctl -b offset (default current boot)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	events, err := collectEvents(*input, *fromJournal, *boot, stdin, c)
+	if err != nil {
+		reportCollectError("timing", err, stderr)
+		return 1
+	}
+
+	out := bufio.NewWriter(stdout)
+	defer out.Flush()
+	fmt.Fprintln(out, timing.Format(timing.Analyze(events)))
 	return 0
 }
 

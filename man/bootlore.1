@@ -110,6 +110,27 @@ a duration.
 .BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET ", " \-\-category= LIST
 Same sources, boot selection and category filter as
 .BR collect .
+.SS timing
+Report a boot's duration and timing. When systemd logged its authoritative
+startup summary
+.RB ( "Startup finished in ... = ..." ),
+BootLore shows that total and its per\-phase breakdown
+.RB ( firmware ,
+.BR loader ,
+.BR kernel ,
+.BR userspace );
+otherwise it falls back to the largest monotonic offset observed and marks the
+total as observed rather than reported, so it never presents an estimate as a
+fact. It also lists the boot targets reached
+.RB ( "Reached target ..." )
+at their offset since boot.
+.TP
+.BI \-\-input= FILE ", " \-\-journal ", " \-\-boot= OFFSET
+Same sources and boot selection as
+.BR collect .
+There is no
+.B \-\-category
+filter: dropping the startup summary line would corrupt the totals.
 .SS explain
 Print events with contextual, educational explanations indented under each
 one, at the requested depth:
@@ -249,6 +270,14 @@ Find out which services failed or were slow to start:
 .RS
 .nf
 bootlore services
+.fi
+.RE
+.PP
+See how long the boot took, phase by phase:
+.PP
+.RS
+.nf
+bootlore timing
 .fi
 .RE
 .PP

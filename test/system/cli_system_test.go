@@ -177,6 +177,22 @@ func TestServicesFromFile(t *testing.T) {
 	}
 }
 
+// The fixtures carry no "Startup finished" line, so timing is exercised with a
+// crafted boot piped over stdin that includes systemd's authoritative summary.
+func TestTimingFromStdin(t *testing.T) {
+	stdin := `{"__MONOTONIC_TIMESTAMP":"2000000","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Reached target Basic System."}
+{"__MONOTONIC_TIMESTAMP":"5000000","SYSLOG_IDENTIFIER":"systemd","MESSAGE":"Startup finished in 1.500s (kernel) + 3.500s (userspace) = 5.000s"}`
+	res := runBootlore(t, stdin, "timing")
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", res.code, res.stderr)
+	}
+	for _, re := range []string{`Total:\s+5\.000s`, `reported by systemd`, `kernel\s+1\.500s`, `\+2\.000s\s+Basic System`} {
+		if !regexp.MustCompile(re).MatchString(res.stdout) {
+			t.Errorf("timing report does not match %q:\n%s", re, res.stdout)
+		}
+	}
+}
+
 func TestVersion(t *testing.T) {
 	res := runBootlore(t, "", "version")
 	if res.code != 0 {

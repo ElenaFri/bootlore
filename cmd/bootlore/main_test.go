@@ -859,3 +859,69 @@ func TestServicesBadFlagFails(t *testing.T) {
 		t.Errorf("exit code = %d, want 2", code)
 	}
 }
+
+// --- timing command ---
+
+// timingEntries carries systemd's authoritative startup summary and a milestone,
+// so the timing report has both a reported total and a reached target.
+const timingEntries = `{"__REALTIME_TIMESTAMP":"1700000000000000","__MONOTONIC_TIMESTAMP":"2000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"Reached target Basic System."}
+{"__REALTIME_TIMESTAMP":"1700000003000000","__MONOTONIC_TIMESTAMP":"5000000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"Startup finished in 1.500s (kernel) + 3.500s (userspace) = 5.000s"}`
+
+func TestTimingReportsTotalPhasesAndMilestones(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"timing"}, strings.NewReader(timingEntries), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	for _, re := range []string{
+		`Boot timing`,
+		`Total:\s+5\.000s`,
+		`reported by systemd`,
+		`kernel\s+1\.500s`,
+		`userspace\s+3\.500s`,
+		`\+2\.000s\s+Basic System`,
+	} {
+		if !regexp.MustCompile(re).MatchString(stdout) {
+			t.Errorf("timing report does not match %q:\n%s", re, stdout)
+		}
+	}
+}
+
+func TestTimingEmptyInput(t *testing.T) {
+	stdout, stderr, code := runCLI([]string{"timing"}, strings.NewReader(""), &collectortest.FakeRunner{})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "No boot timing") {
+		t.Errorf("empty timing should say there is nothing to report:\n%s", stdout)
+	}
+}
+
+func TestTimingBackendUnavailableShowsHint(t *testing.T) {
+	fr := &collectortest.FakeRunner{Err: fmt.Errorf("collector: reading journal: %w", collector.ErrBackendUnavailable)}
+	_, stderr, code := runCLI([]string{"timing", "--journal"}, strings.NewReader(""), fr)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "hint:") {
+		t.Errorf("stderr should contain the hint, got %q", stderr)
+	}
+}
+
+// timing deliberately omits --category: filtering would drop the systemd summary
+// line and corrupt the totals, so the flag must be rejected as unknown.
+func TestTimingRejectsCategoryFlag(t *testing.T) {
+	_, stderr, code := runCLI([]string{"timing", "--category", "network"}, strings.NewReader(timingEntries), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "category") {
+		t.Errorf("stderr should name the rejected flag, got %q", stderr)
+	}
+}
+
+func TestTimingBadFlagFails(t *testing.T) {
+	_, _, code := runCLI([]string{"timing", "--nope"}, strings.NewReader(timingEntries), &collectortest.FakeRunner{})
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+}
