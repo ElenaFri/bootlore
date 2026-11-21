@@ -21,10 +21,10 @@ import (
 const twoEntries = `{"__REALTIME_TIMESTAMP":"1700000000000000","__MONOTONIC_TIMESTAMP":"1200000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"Reached target Multi-User System."}
 {"__REALTIME_TIMESTAMP":"1700000001000000","PRIORITY":"4","SYSLOG_IDENTIFIER":"systemd","_PID":"1","MESSAGE":"unit.service: Failed with result 'exit-code'."}`
 
-// runCLI invokes runWith with buffers and a collector backed by fr.
-func runCLI(args []string, stdin io.Reader, fr *collectortest.FakeRunner) (stdout, stderr string, code int) {
+// runCLI invokes runWith with buffers and a collector backed by r.
+func runCLI(args []string, stdin io.Reader, r collector.Runner) (stdout, stderr string, code int) {
 	var out, errb bytes.Buffer
-	code = runWith(args, stdin, &out, &errb, collector.New(fr))
+	code = runWith(args, stdin, &out, &errb, collector.New(r))
 	return out.String(), errb.String(), code
 }
 

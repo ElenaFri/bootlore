@@ -34,6 +34,7 @@ import (
 
 	"github.com/ElenaFri/bootlore/internal/collector"
 	"github.com/ElenaFri/bootlore/internal/compare"
+	"github.com/ElenaFri/bootlore/internal/doctor"
 	"github.com/ElenaFri/bootlore/internal/event"
 	"github.com/ElenaFri/bootlore/internal/filter"
 	"github.com/ElenaFri/bootlore/internal/interpret"
@@ -89,6 +90,8 @@ func runWith(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collec
 		return cmdCompare(args[1:], stdout, stderr, c)
 	case "report":
 		return cmdReport(args[1:], stdin, stdout, stderr, c)
+	case "doctor":
+		return cmdDoctor(args[1:], stdout, stderr, c)
 	case "tui":
 		return cmdTui(args[1:], stdin, stdout, stderr, c)
 	case "version", "--version", "-v":
@@ -119,6 +122,7 @@ Commands:
   timing     Report boot duration: systemd's startup summary, phases, milestones
   compare    Contrast two boots: duration, counts and service-failure changes
   report     Export a boot's full diagnosis (summary+timing+services) to a file
+  doctor     Check system compatibility and journal permissions
   explain    Print the HUMAN view with contextual, educational explanations
   errors     Print only warnings and failures (HUMAN view by default)
   tui        Interactive boot monitor: views, navigation, filtering (needs a tty)
@@ -174,6 +178,8 @@ report flags (no --category: a report covers the whole boot):
 explain flags:
   --level L        explanation depth: overview, technical (default) or in-depth
 
+doctor flags: none — doctor probes the live system directly
+
 Examples:
   bootlore collect
   bootlore collect --boot -1 --view human
@@ -185,6 +191,7 @@ Examples:
   bootlore compare
   bootlore report --format markdown
   bootlore report --format json --output boot-report.json
+  bootlore doctor
   bootlore explain --level in-depth
   bootlore errors --category storage,hardware
   journalctl -b -o json | bootlore collect
@@ -562,6 +569,43 @@ func emitReport(rendered, output string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	out.Flush()
+	return 0
+}
+
+// cmdDoctor probes the live system — journal backend, journal readability, boot
+// history — and prints a compatibility and permissions check. It takes no event
+// source: doctor examines the system BootLore would run on, never a captured
+// boot. The exit code is 0 when every check passes (warnings allowed) and 1 as
+// soon as one check fails.
+func cmdDoctor(args []string, stdout, stderr io.Writer, c *collector.Collector) int {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	ctx := context.Background()
+	var f doctor.Findings
+	events, err := c.Collect(ctx, collector.Options{})
+	if err != nil {
+		f.BackendErr = err
+	} else {
+		f.Events = events
+		if n, berr := c.BootCount(ctx); berr == nil {
+			f.BootCount = n
+		}
+	}
+
+	checks := doctor.Analyze(f)
+	out := bufio.NewWriter(stdout)
+	fmt.Fprintln(out, "BootLore doctor — system compatibility and permissions check")
+	fmt.Fprintln(out)
+	fmt.Fprint(out, doctor.Render(checks))
+	out.Flush()
+
+	if doctor.Worst(checks) == doctor.Fail {
+		return 1
+	}
 	return 0
 }
 

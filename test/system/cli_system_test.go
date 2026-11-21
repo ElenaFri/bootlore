@@ -737,3 +737,73 @@ func TestLiveViewHuman(t *testing.T) {
 		t.Error("replayed events must be printed before live events")
 	}
 }
+
+// --- doctor command (end-to-end, via a stub journalctl on PATH) ---
+
+// doctorOnPath runs `bootlore doctor` with the given journalctl stub directory
+// as the only entry on PATH, mirroring how a user with a broken or partial
+// system would run it.
+func doctorOnPath(t *testing.T, pathDir string) result {
+	t.Helper()
+	return runBootloreEnv(t, []string{"PATH=" + pathDir}, "", "doctor")
+}
+
+const doctorSystemEntry = `{"__REALTIME_TIMESTAMP":"1700000000000000","__MONOTONIC_TIMESTAMP":"1200000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1","_UID":"0","MESSAGE":"Startup finished in 1.2s."}`
+
+const doctorUserEntry = `{"__REALTIME_TIMESTAMP":"1700000000000000","__MONOTONIC_TIMESTAMP":"1200000","PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_PID":"1340","_UID":"1000","_SYSTEMD_USER_UNIT":"main.target","MESSAGE":"Reached target Main User Target."}`
+
+const doctorBootList = ` -1 1608c9e8 Sun 2026-11-15 22:44:26 CET Mon 2026-11-16 15:15:43 CET
+  0 48be9b9b Fri 2026-11-20 11:01:03 CET Fri 2026-11-20 11:23:01 CET`
+
+// stubDoctorJournalctlSystem writes a journalctl stub answering both doctor
+// probes: two recorded boots and the given boot event stream.
+func stubDoctorJournalctlSystem(t *testing.T, event string) string {
+	t.Helper()
+	body := "case \"$*\" in\n  *--list-boots*)\n    printf '%s\\n' '" + doctorBootList + "'\n    ;;\n  *)\n    printf '%s\\n' '" + event + "'\n    ;;\nesac"
+	return collectortest.WriteStubJournalctl(t, body)
+}
+
+func TestDoctorHealthyStubSystem(t *testing.T) {
+	dir := stubDoctorJournalctlSystem(t, doctorSystemEntry)
+	res := doctorOnPath(t, dir)
+	if res.code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q, stdout:\n%s", res.code, res.stderr, res.stdout)
+	}
+	for _, name := range []string{"journalctl", "journal", "boot-events", "boots"} {
+		if !strings.Contains(res.stdout, name) {
+			t.Errorf("output should list the %s check:\n%s", name, res.stdout)
+		}
+	}
+	if strings.Contains(res.stdout, "fail") || strings.Contains(res.stdout, "warn") {
+		t.Errorf("healthy system should report no failure:\n%s", res.stdout)
+	}
+}
+
+func TestDoctorUserOnlyJournalExitsOne(t *testing.T) {
+	dir := stubDoctorJournalctlSystem(t, doctorUserEntry)
+	res := doctorOnPath(t, dir)
+	if res.code != 1 {
+		t.Fatalf("exit code = %d, want 1 (stdout:\n%s)", res.code, res.stdout)
+	}
+	if !strings.Contains(res.stdout, "systemd-journal") {
+		t.Errorf("output should hint at the systemd-journal group:\n%s", res.stdout)
+	}
+}
+
+func TestDoctorMissingJournalctlFailsAllChecks(t *testing.T) {
+	res := doctorOnPath(t, t.TempDir())
+	if res.code != 1 {
+		t.Fatalf("exit code = %d, want 1", res.code)
+	}
+	if got := strings.Count(res.stdout, "  fail  "); got != 4 {
+		t.Errorf("all four checks should fail (got %d fail lines):\n%s", got, res.stdout)
+	}
+}
+
+func TestDoctorBadFlagFails(t *testing.T) {
+	dir := stubDoctorJournalctlSystem(t, doctorSystemEntry)
+	res := runBootloreEnv(t, []string{"PATH=" + dir}, "", "doctor", "--bogus")
+	if res.code != 2 {
+		t.Fatalf("exit code = %d, want 2", res.code)
+	}
+}

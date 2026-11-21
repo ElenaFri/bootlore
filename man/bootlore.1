@@ -226,6 +226,28 @@ Write the report to
 .I FILE
 instead of standard output, confirming the path on standard error. This is the
 intended way to export a diagnosis.
+.SS doctor
+Check whether BootLore can do its job on this system: run a few small probes
+against the live journal backend and report them as checks. It answers questions
+like "why does
+.B summary
+see nothing" before they are asked. The checks are:
+.IP journalctl 4
+the journal backend can be run at all;
+.IP journal 4
+the system journal is readable (only your own user\-session journal is visible
+otherwise);
+.IP boot\-events 4
+the current boot yields events;
+.IP boots 4
+how many boots the journal recorded (at least two are needed by
+.BR compare ).
+With no flags at all, doctor always probes the live system; piping a captured
+export at it changes nothing. Each failed check is followed by a hint
+suggesting a fix (for example joining the
+.B systemd\-journal
+group). The exit code is 0 when every check passes (warnings allowed) and 1 as
+soon as one fails, so scripts can rely on it.
 .SS explain
 Print events with contextual, educational explanations indented under each
 one, at the requested depth:
