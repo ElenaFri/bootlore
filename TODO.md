@@ -38,12 +38,12 @@
 
 ## Phase 5 — System integration
 
-- [ ] Implement an optional systemd service
-- [ ] Run the collector under a dedicated unprivileged account
-- [ ] Add optional access to the system journal
-- [ ] Implement virtual terminal integration
-- [ ] Handle unavailable or occupied virtual terminals gracefully
-- [ ] Ensure BootLore never interferes with the normal boot process
+- [x] Implement an optional systemd service (`systemd/bootlore.service`, opt-in only)
+- [x] Run the collector under a dedicated unprivileged account (`User=bootlore`)
+- [x] Add optional access to the system journal (`SupplementaryGroups=systemd-journal`)
+- [x] Implement virtual terminal integration (`bootlore tui --vt N`; terminal assigned by systemd, verified by BootLore)
+- [x] Handle unavailable or occupied virtual terminals gracefully (clear errors, exit code 1, `Restart=no`)
+- [x] Ensure BootLore never interferes with the normal boot process (ordering only, no `Requires=`/`Before=`, guarded by `test/docs`)
 
 ## Phase 6 — Testing and distribution
 

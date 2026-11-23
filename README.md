@@ -57,6 +57,29 @@ says so. Join the group with `sudo usermod -aG systemd-journal $USER` (then log
 back in), or pipe the system journal once with
 `sudo journalctl -b -o json | bootlore timing`.
 
+### Optional systemd service
+
+`bootlore tui --vt N` implements the *service mode*: the terminal is assigned
+by systemd (`TTYPath`) and verified by BootLore — it never seizes a terminal,
+never touches the console you are looking at, and exits gracefully when the
+requested terminal is occupied or unavailable.
+
+The optional unit `systemd/bootlore.service` starts the TUI on `tty9` at boot,
+under a dedicated unprivileged account, without ever delaying the boot (it is
+ordered after `systemd-journald`, requires nothing, opt-in via `systemctl
+enable`). Installation as root:
+
+```sh
+useradd --system --home-dir /var/lib/bootlore --create-home --shell /usr/sbin/nologin bootlore
+make build && install -Dm755 bin/bootlore /usr/bin/bootlore && install -Dm644 systemd/bootlore.service /etc/systemd/system/bootlore.service
+systemctl daemon-reload && systemctl enable bootlore.service
+```
+
+The account gets read-only journal access through the standard `systemd-journal`
+group (the unit adds it as a supplementary group); it needs no other privilege.
+To use another terminal, override both values with a drop-in
+(`systemctl edit bootlore.service`: `TTYPath=/dev/tty8` and `--vt 8`).
+
 ```sh
 # Read the current boot straight from the system journal (LOG view)
 ./bin/bootlore collect

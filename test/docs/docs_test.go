@@ -41,7 +41,7 @@ func TestManPageDocumentsEveryFlag(t *testing.T) {
 	page := readFile(t, manPage)
 	// roff escapes the dashes: \-\-input, \-\-journal, ...
 	flat := strings.ReplaceAll(page, `\-`, "-")
-	for _, flag := range []string{"--input", "--journal", "--boot", "--view", "--level", "--category", "--against", "--against-input", "--format", "--output"} {
+	for _, flag := range []string{"--input", "--journal", "--boot", "--view", "--level", "--category", "--against", "--against-input", "--format", "--output", "--vt"} {
 		if !strings.Contains(flat, flag) {
 			t.Errorf("man page does not document the %s flag", flag)
 		}

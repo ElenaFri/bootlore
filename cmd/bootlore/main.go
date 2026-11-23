@@ -46,6 +46,7 @@ import (
 	"github.com/ElenaFri/bootlore/internal/summary"
 	"github.com/ElenaFri/bootlore/internal/timing"
 	"github.com/ElenaFri/bootlore/internal/tui"
+	"github.com/ElenaFri/bootlore/internal/vt"
 )
 
 // version is overridable at build time with -ldflags "-X main.version=...".
@@ -151,6 +152,8 @@ timeline and errors flags:
 tui flags:
   --boot OFFSET    which boot to watch (default: current)
   --category LIST  only these subsystems (see above); also editable in-session with /
+  --vt N           service mode: verify this tty (ttyN) was assigned to the process,
+                   then run on it (never seize a terminal, exit 1 if busy/unavailable)
 
 tui keys:
   1/2 switch LOG/HUMAN · Enter detail · Tab explanation level
@@ -675,6 +678,7 @@ func cmdTui(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collect
 	fs.SetOutput(stderr)
 	boot := fs.String("boot", "", "boot to watch as a journalctl -b offset (default current boot)")
 	category := fs.String("category", "", "only these subsystems, comma-separated (default: all)")
+	vtNumber := fs.Int("vt", 0, "service mode: verify the given virtual terminal (ttyN) was assigned to this process, then run on it")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -688,6 +692,22 @@ func cmdTui(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collect
 	if !inOK || !outOK || !tui.IsTerminalable(in, out) {
 		fmt.Fprintln(stderr, "bootlore: "+tui.ErrNotATTY.Error())
 		return 1
+	}
+
+	// Service mode: the terminal was handed to us (systemd TTYPath); never
+	// seized. Verify it before touching the journal so a misconfigured unit
+	// fails fast with a clear reason.
+	if *vtNumber != 0 {
+		st, err := in.Stat()
+		if err != nil {
+			fmt.Fprintf(stderr, "bootlore: cannot inspect the input terminal: %v\n", err)
+			return 1
+		}
+		rdev := uint64(st.Sys().(*syscall.Stat_t).Rdev)
+		if err := vt.NewProbe().RequireCurrent(rdev, *vtNumber); err != nil {
+			fmt.Fprintf(stderr, "bootlore: --vt %d: %v\n", *vtNumber, err)
+			return 1
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

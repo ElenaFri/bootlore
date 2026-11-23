@@ -1,0 +1,39 @@
+# Optional BootLore boot monitor — see README "Optional systemd service".
+#
+# Safety rules encoded here (architecture.md §6, verified by test/docs):
+#   - dedicated unprivileged account, journal through the standard group;
+#   - ordered after journald but never requiring it (never delay boot);
+#   - the terminal is assigned by systemd (TTYPath) and verified by the TUI
+#     (--vt): an occupied or unavailable terminal is a graceful exit;
+#   - no restart loop: a refused terminal will not free itself by retrying.
+
+[Unit]
+Description=BootLore boot monitor on a virtual terminal
+Documentation=man:bootlore(1)
+
+# Ordering only: journald running first is what we want to observe; a late or
+# absent journal must never delay or fail system startup.
+After=systemd-journald.service
+
+[Service]
+# Dedicated unprivileged account (create it once at install, see README).
+User=bootlore
+# Optional extended journal access through the standard mechanism — the
+# account needs no other privilege.
+SupplementaryGroups=systemd-journal
+
+# systemd opens the terminal before dropping privileges and hands it to the
+# TUI on standard input; the TUI verifies it is the requested console.
+TTYPath=/dev/tty9
+TTYVHangup=yes
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+
+# Occupied or unavailable terminals must not turn into a fight for a console.
+Restart=no
+ExecStart=/usr/bin/bootlore tui --vt 9
+
+[Install]
+# Opt-in only: enable deliberately, never by default.
+WantedBy=multi-user.target

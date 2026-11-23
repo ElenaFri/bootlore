@@ -289,6 +289,16 @@ Keep only events of the given subsystems (see
 .BR FILTERING ).
 The filter can also be edited interactively.
 .TP
+.BI \-\-vt= N
+Service mode: verify that the terminal handed to the process (by a systemd
+unit using
+.BR TTYPath )
+is exactly tty
+.IR N ,
+free and not the active console, then run on it. BootLore never seizes a
+terminal by itself, never takes the console the user is looking at, and exits
+with code 1 instead when the terminal is occupied or unavailable.
+.TP
 Interactive keys:
 1 / 2 switch LOG / HUMAN, Enter detail of the selected event ;
 Tab cycle the explanation level (overview, technical, in\-depth) ;
