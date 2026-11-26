@@ -153,6 +153,19 @@ func Format(c Comparison) string {
 	row("Failures:", strconv.Itoa(c.Baseline.Summary.Failures), strconv.Itoa(c.Current.Summary.Failures),
 		signedInt(c.Current.Summary.Failures-c.Baseline.Summary.Failures))
 
+	// The counts above cover each boot's whole session journal, which runs
+	// until the next boot (or now). Showing the observed span makes that
+	// explicit, and a caveat fires when the two windows differ enough that
+	// comparing raw counts would mislead.
+	bs, cs := c.Baseline.Summary.Span, c.Current.Summary.Span
+	if bs > 0 || cs > 0 {
+		row("Session:", spanLabel(bs), spanLabel(cs), "")
+	}
+	if spansIncomparable(bs, cs) {
+		fmt.Fprintf(&b, "  note: the counts above cover each whole session (not just the boot),\n")
+		fmt.Fprintf(&b, "        so with spans this different they are not directly comparable.\n")
+	}
+
 	b.WriteString("\nService failures:\n")
 	writeUnits(&b, "fixed", c.Fixed)
 	writeUnits(&b, "new", c.Regressed)
@@ -168,6 +181,43 @@ func Format(c Comparison) string {
 // shortBootID is the number of leading characters of a 32-character boot ID kept
 // in the comparison, enough to identify a boot while fitting the fixed columns.
 const shortBootID = 12
+
+// spanLabel renders a session span coarsely (days, hours, minutes or seconds),
+// so a three-day session reads as "3d 0h" rather than "261013.235s". A zero
+// span, i.e. no observed window, reads as n/a.
+func spanLabel(d time.Duration) string {
+	if d <= 0 {
+		return "n/a"
+	}
+	switch {
+	case d >= 24*time.Hour:
+		return fmt.Sprintf("%dd %dh", d/(24*time.Hour), (d%(24*time.Hour))/time.Hour)
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh %dm", d/time.Hour, (d%time.Hour)/time.Minute)
+	case d >= time.Minute:
+		return fmt.Sprintf("%dm %ds", d/time.Minute, (d%time.Minute)/time.Second)
+	default:
+		return fmt.Sprintf("%ds", d/time.Second)
+	}
+}
+
+// spanIncomparableFactor is how many times longer one session may run than the
+// other before their raw event counts stop being directly comparable.
+const spanIncomparableFactor = 2
+
+// spansIncomparable reports whether two session spans differ enough that
+// comparing their raw counts would mislead. It needs both windows to be known
+// (a missing span cannot be judged).
+func spansIncomparable(a, b time.Duration) bool {
+	if a <= 0 || b <= 0 {
+		return false
+	}
+	lo, hi := a, b
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	return hi > time.Duration(spanIncomparableFactor)*lo
+}
 
 // bootLabel renders a boot's identifier for the comparison, shortening real
 // 32-character boot IDs so the columns stay aligned. It falls back to

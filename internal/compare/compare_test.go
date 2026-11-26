@@ -148,6 +148,53 @@ func TestFormatDurationNotAvailable(t *testing.T) {
 	}
 }
 
+// session builds a boot whose events span a given wall-clock window, so the
+// summary's observed Span is non-zero.
+func session(id string, span time.Duration) []event.Event {
+	start := time.Date(2026, 11, 23, 16, 0, 0, 0, time.UTC)
+	return []event.Event{
+		{BootID: id, RealtimeTimestamp: start, Significance: event.SignificanceNormal, Message: "Kernel started."},
+		{BootID: id, RealtimeTimestamp: start.Add(span), Significance: event.SignificanceNormal, Message: "Reached target Multi-User System."},
+	}
+}
+
+// The report must show each side's observed session span, so a reader can see
+// what window the event counts cover.
+func TestFormatShowsSessionSpan(t *testing.T) {
+	out := Format(Compare(session("base", 72*time.Hour), session("curr", 5*time.Minute)))
+
+	if !regexp.MustCompile(`(?i)session:`).MatchString(out) {
+		t.Errorf("report should show a session span row:\n%s", out)
+	}
+	// Coarse, human-readable spans (not raw seconds).
+	if !strings.Contains(out, "3d") {
+		t.Errorf("baseline span of 72h should read as days:\n%s", out)
+	}
+	if !regexp.MustCompile(`5m\b`).MatchString(out) {
+		t.Errorf("current span of 5m should read in minutes:\n%s", out)
+	}
+}
+
+// When the two sessions span very different windows, the counts are not
+// directly comparable; the report must say so, so nobody reads a huge negative
+// failure delta as a fix.
+func TestFormatWarnsWhenSpansDiffer(t *testing.T) {
+	out := Format(Compare(session("base", 72*time.Hour), session("curr", 5*time.Minute)))
+
+	if !regexp.MustCompile(`(?i)not directly comparable|whole session`).MatchString(out) {
+		t.Errorf("report should caveat that counts span different windows:\n%s", out)
+	}
+}
+
+// Comparable session windows need no caveat: a clean report stays clean.
+func TestFormatNoCaveatForSimilarSpans(t *testing.T) {
+	out := Format(Compare(session("base", 10*time.Minute), session("curr", 11*time.Minute)))
+
+	if regexp.MustCompile(`(?i)not directly comparable`).MatchString(out) {
+		t.Errorf("similar spans should not trigger the caveat:\n%s", out)
+	}
+}
+
 // An empty comparison must render without crashing and without inventing data.
 func TestFormatEmpty(t *testing.T) {
 	out := Format(Compare(nil, nil))

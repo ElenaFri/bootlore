@@ -1,6 +1,8 @@
 # BootLore — Architecture
 
-> **Status:** Initial design  
+> **Status:** Implemented — phases 1–5 complete (collector, event processing,
+> CLI and TUI, diagnostics and reporting, system integration); phase 6
+> (cross-distribution testing and packaging) in progress.  
 > **Target platform:** Linux (systemd-based distributions)  
 > **Implementation language:** Go
 
@@ -250,14 +252,24 @@ The presentation layer provides access to event information.
 
 The command-line interface is the first implementation target.
 
-Planned commands include:
+The implemented commands are:
 
-- `bootlore collect`
-- `bootlore live`
-- `bootlore timeline`
-- `bootlore explain`
-- `bootlore services`
-- `bootlore errors`
+- `bootlore collect` — print a boot's events (LOG or HUMAN view)
+- `bootlore live` — replay the current boot, then follow it live
+- `bootlore timeline` — chronological timeline with boot-relative offsets
+- `bootlore summary` — one-screen overview (counts, warnings, failures, timing)
+- `bootlore services` — failed systemd services and reconstructed timings
+- `bootlore timing` — boot duration: startup summary, phases and milestones
+- `bootlore compare` — contrast two boots (duration per phase, counts, service-failure changes)
+- `bootlore report` — export a full diagnosis as text, markdown or JSON
+- `bootlore explain` — events with educational explanations at three depths
+- `bootlore errors` — only warnings and failures
+- `bootlore doctor` — system compatibility and journal-permission check
+- `bootlore tui` — interactive monitor (also the service mode, via `--vt N`)
+
+Every boot-reading command accepts the same sources (`--input` file, piped
+stdin, or the system journal) and, where meaningful, the same `--category`
+subsystem filter and LOG/HUMAN/EXPLAIN views.
 
 **TUI**
 
@@ -317,18 +329,31 @@ It allows retrospective inspection of the current boot and live monitoring of su
 
 ### Automatic startup mode
 
-An optional systemd service may start BootLore automatically during system startup.
+An optional systemd service (`systemd/bootlore.service`) may start BootLore
+automatically during system startup. It is opt-in: installed but never enabled
+by default.
 
-The service is intended to:
+The service, as implemented:
 
-- Run under a dedicated unprivileged account.
-- Start after the journal is available.
-- Use a configurable virtual terminal, where supported.
-- Never block or delay normal system startup.
-- Never take control of the active console automatically.
-- Exit gracefully if the requested terminal is unavailable.
+- Runs under a dedicated unprivileged account (`User=bootlore`), created
+  declaratively via `systemd/bootlore.sysusers.conf` (systemd-sysusers), never
+  by a manual `useradd`.
+- Starts after the journal is available (`After=systemd-journald.service`,
+  ordering only), with read-only journal access through the standard
+  `systemd-journal` supplementary group.
+- Uses a configurable virtual terminal: systemd assigns it (`TTYPath=/dev/tty9`)
+  and BootLore verifies it (`bootlore tui --vt 9`), via the `internal/vt`
+  package, before drawing anything.
+- Never blocks or delays normal system startup: no `Requires=`, no `Before=`,
+  only a weak `WantedBy=`, so its failure leaves the boot untouched.
+- Never takes control of the active console: the `vt` package refuses the
+  foreground terminal, an occupied terminal, or a non-existent one.
+- Exits gracefully if the requested terminal is unavailable (`Restart=no`,
+  clear message, exit code 1), rather than fighting for it.
 
-Virtual terminal integration is an optional deployment feature and must not be a dependency of the core application.
+These safety rules are guarded by tests (`test/docs/unitfile_test.go` and the
+`internal/vt` suite). Virtual terminal integration is an optional deployment
+feature and must not be a dependency of the core application.
 
 ## 7. Permissions and security
 

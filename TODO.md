@@ -50,7 +50,7 @@
 - [ ] Test on different systemd-based Linux distributions
 - [ ] Test under virtual machines and real hardware
 - [ ] Test restricted permissions and failure scenarios
-- [ ] Document architecture and design decisions
+- [x] Document architecture and design decisions (`docs/architecture.md` reflects the implemented commands and service; guarded by test/docs)
 - [x] Write installation and removal instructions (`make install`/`make uninstall`, DESTDIR/PREFIX aware; README incl. SELinux note; guarded by test/docs)
 - [ ] Package for initial distribution
 

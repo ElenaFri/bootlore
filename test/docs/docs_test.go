@@ -6,6 +6,7 @@ package docs
 import (
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -86,6 +87,23 @@ func TestReadmeListsEveryCommand(t *testing.T) {
 		}
 		if !strings.Contains(readme, "`bootlore "+cmd+"`") {
 			t.Errorf("README commands table does not list `bootlore %s`", cmd)
+		}
+	}
+}
+
+// The architecture document must stay in sync with the implemented commands,
+// so it never again describes shipped features as merely "planned".
+func TestArchitectureListsEveryCommand(t *testing.T) {
+	arch := readFile(t, "../../docs/architecture.md")
+	if regexp.MustCompile(`(?i)initial design`).MatchString(arch) {
+		t.Error("architecture.md still reads 'Initial design' though the design is implemented")
+	}
+	for _, cmd := range commands {
+		if cmd == "help" || cmd == "version" {
+			continue // utility commands are not part of the architecture overview
+		}
+		if !strings.Contains(arch, "`bootlore "+cmd+"`") {
+			t.Errorf("architecture.md does not mention `bootlore %s`", cmd)
 		}
 	}
 }
