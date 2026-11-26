@@ -257,6 +257,24 @@ func TestSetFilterInvalid(t *testing.T) {
 	}
 }
 
+// SetView chooses the starting representation, so the TUI (and the service)
+// can open directly in HUMAN narration instead of LOG.
+func TestSetView(t *testing.T) {
+	m := New()
+	if m.View() != ViewLog {
+		t.Fatalf("default view = %v, want LOG", m.View())
+	}
+	m.SetView(ViewHuman)
+	if m.View() != ViewHuman {
+		t.Errorf("after SetView(HUMAN): view = %v, want HUMAN", m.View())
+	}
+	// The 1/2 keys still work on top of the chosen starting view.
+	m.Key("1")
+	if m.View() != ViewLog {
+		t.Errorf("after 1: view = %v, want LOG", m.View())
+	}
+}
+
 // The cursor must stay within the visible window: scrolling down moves the
 // window, scrolling up brings it back.
 func TestScrollingWindow(t *testing.T) {

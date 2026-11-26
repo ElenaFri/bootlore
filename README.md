@@ -102,8 +102,11 @@ systemctl enable --now bootlore.service
 
 The account gets read-only journal access through the standard `systemd-journal`
 group (the unit adds it as a supplementary group); it needs no other privilege.
-To use another terminal, override both values with a drop-in
-(`systemctl edit bootlore.service`: `TTYPath=/dev/tty8` and `--vt 8`).
+The service runs `bootlore tui --vt 9 --view human`, so the boot is narrated in
+plain language from the first frame; switch to `tty9` (`chvt 9` or Ctrl-Alt-F9)
+to watch it, and press `1`/`2` to toggle LOG/HUMAN. To use another terminal,
+override both values with a drop-in (`systemctl edit bootlore.service`:
+`TTYPath=/dev/tty8` and `--vt 8`).
 
 ```sh
 # Read the current boot straight from the system journal (LOG view)

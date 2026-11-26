@@ -102,6 +102,10 @@ func (m *Model) Visible(i int) event.Event {
 // SetStatus sets the transient message shown in the status bar.
 func (m *Model) SetStatus(msg string) { m.status = msg }
 
+// SetView chooses the list representation (LOG or HUMAN). It sets the starting
+// view; the 1/2 keys keep switching it afterwards.
+func (m *Model) SetView(v View) { m.view = v }
+
 // --- state transitions ---
 
 // Resize records the terminal dimensions and keeps the cursor and the detail

@@ -19,14 +19,17 @@ import (
 // Run starts the interactive boot monitor. in and out must be terminals; the
 // caller checks with IsTerminalable and reports ErrNotATTY nicely. The
 // collector feeds the replay-then-live stream and opt selects the boot.
+// initialFilter and initialView set the starting category filter and list
+// representation (LOG or HUMAN); both stay switchable in-session.
 //
 // Run returns nil when the user quits (or ctx is canceled, or the terminal
 // goes away) and an error when the session could not start: an invalid filter,
 // a file that is not a terminal, or a journal backend that failed before
 // delivering anything. Once events are on screen a journal problem is shown in
 // the status bar instead, so what was collected stays browsable.
-func Run(ctx context.Context, in, out *os.File, c *collector.Collector, opt collector.Options, initialFilter string) error {
+func Run(ctx context.Context, in, out *os.File, c *collector.Collector, opt collector.Options, initialFilter string, initialView View) error {
 	m := New()
+	m.SetView(initialView)
 
 	// Validate everything that can be refused before touching the terminal.
 	if initialFilter != "" {

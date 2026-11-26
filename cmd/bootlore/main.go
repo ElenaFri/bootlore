@@ -152,6 +152,7 @@ timeline and errors flags:
 tui flags:
   --boot OFFSET    which boot to watch (default: current)
   --category LIST  only these subsystems (see above); also editable in-session with /
+  --view V         starting view: log (default) or human (switch with 1/2 in-session)
   --vt N           service mode: verify this tty (ttyN) was assigned to the process,
                    then run on it (never seize a terminal, exit 1 if busy/unavailable)
 
@@ -301,6 +302,18 @@ func viewRenderer(view string) (func(event.Event) string, error) {
 		return render.HumanLine, nil
 	default:
 		return nil, fmt.Errorf("unknown view %q (want log or human)", view)
+	}
+}
+
+// tuiView maps a --view value onto the TUI's starting representation.
+func tuiView(view string) (tui.View, error) {
+	switch view {
+	case "", "log":
+		return tui.ViewLog, nil
+	case "human":
+		return tui.ViewHuman, nil
+	default:
+		return tui.ViewLog, fmt.Errorf("unknown view %q (want log or human)", view)
 	}
 }
 
@@ -678,11 +691,17 @@ func cmdTui(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collect
 	fs.SetOutput(stderr)
 	boot := fs.String("boot", "", "boot to watch as a journalctl -b offset (default current boot)")
 	category := fs.String("category", "", "only these subsystems, comma-separated (default: all)")
+	view := fs.String("view", "log", "starting view: log (default) or human")
 	vtNumber := fs.Int("vt", 0, "service mode: verify the given virtual terminal (ttyN) was assigned to this process, then run on it")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if _, err := filter.ParseCategories(*category); err != nil {
+		fmt.Fprintf(stderr, "bootlore: %v\n", err)
+		return 2
+	}
+	initialView, err := tuiView(*view)
+	if err != nil {
 		fmt.Fprintf(stderr, "bootlore: %v\n", err)
 		return 2
 	}
@@ -712,7 +731,7 @@ func cmdTui(args []string, stdin io.Reader, stdout, stderr io.Writer, c *collect
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	err := tui.Run(ctx, in, out, c, collector.Options{Boot: *boot}, strings.TrimSpace(*category))
+	err = tui.Run(ctx, in, out, c, collector.Options{Boot: *boot}, strings.TrimSpace(*category), initialView)
 	if err != nil {
 		fmt.Fprintf(stderr, "bootlore: %v\n", err)
 		if errors.Is(err, collector.ErrBackendUnavailable) {

@@ -289,6 +289,20 @@ Keep only events of the given subsystems (see
 .BR FILTERING ).
 The filter can also be edited interactively.
 .TP
+.BI \-\-view= V
+Starting view:
+.B log
+(the default, original messages) or
+.B human
+(BootLore's interpretation). The service unit uses
+.B \-\-view human
+so the boot is narrated in plain language from the first frame. Switch views
+at any time with the
+.B 1
+and
+.B 2
+keys.
+.TP
 .BI \-\-vt= N
 Service mode: verify that the terminal handed to the process (by a systemd
 unit using

@@ -504,6 +504,31 @@ func TestTuiPassesBootAndCategoryOptions(t *testing.T) {
 	}
 }
 
+// --vt N aside, --view human must open the monitor directly in HUMAN
+// narration, so the service can show the boot explained from the first frame.
+func TestTuiViewHumanStartsInHumanView(t *testing.T) {
+	r := startTui(t, &recordingRunner{out: nmEntry}, "--view", "human")
+	// HUMAN view renders the event as "NETWORK: ..."; LOG view would show
+	// "systemd[1]: ..." instead.
+	r.pty.WaitFor(t, 0, "NETWORK:")
+	r.pty.Type(t, "q")
+	if code := r.exitCode(t); code != 0 {
+		t.Errorf("exit code = %d, want 0 (stderr = %q)", code, r.stderr.String())
+	}
+}
+
+func TestTuiRejectsBadView(t *testing.T) {
+	p := ptytest.New(t, 80, 24)
+	var errb bytes.Buffer
+	code := runWith([]string{"tui", "--view", "bogus"}, p.Slave, p.Slave, &errb, collector.New(&collectortest.FakeRunner{}))
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errb.String(), "bogus") {
+		t.Errorf("stderr should name the rejected view, got %q", errb.String())
+	}
+}
+
 func TestTuiBackendUnavailableShowsHint(t *testing.T) {
 	p := ptytest.New(t, 100, 12)
 	var errb bytes.Buffer

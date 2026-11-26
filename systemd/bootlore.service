@@ -32,7 +32,7 @@ StandardError=journal
 
 # Occupied or unavailable terminals must not turn into a fight for a console.
 Restart=no
-ExecStart=/usr/bin/bootlore tui --vt 9
+ExecStart=/usr/bin/bootlore tui --vt 9 --view human
 
 [Install]
 # Opt-in only: enable deliberately, never by default.

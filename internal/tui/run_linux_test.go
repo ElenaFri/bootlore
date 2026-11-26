@@ -46,7 +46,7 @@ func startSized(t *testing.T, runner collector.Runner, initialFilter string, col
 
 	s := &session{pty: p, done: make(chan error, 1), cancel: cancel}
 	go func() {
-		s.done <- Run(ctx, p.Slave, p.Slave, collector.New(runner), collector.Options{}, initialFilter)
+		s.done <- Run(ctx, p.Slave, p.Slave, collector.New(runner), collector.Options{}, initialFilter, ViewLog)
 	}()
 	p.WaitFor(t, 0, enterScreen)
 	return s
@@ -151,7 +151,7 @@ func TestRunRejectsAnInvalidInitialFilterWithoutTouchingTheTerminal(t *testing.T
 	p := ptytest.New(t, 100, 12)
 	before := termios(t, p.Slave)
 
-	err := Run(context.Background(), p.Slave, p.Slave, collector.New(replayOf(nmEvent)), collector.Options{}, "bogus")
+	err := Run(context.Background(), p.Slave, p.Slave, collector.New(replayOf(nmEvent)), collector.Options{}, "bogus", ViewLog)
 	if err == nil || !strings.Contains(err.Error(), "unknown category") {
 		t.Fatalf("Run error = %v, want an unknown-category error", err)
 	}
@@ -170,7 +170,7 @@ func TestRunRestoresTheTerminalMode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, p.Slave, p.Slave, collector.New(replayOf(nmEvent)), collector.Options{}, "")
+		done <- Run(ctx, p.Slave, p.Slave, collector.New(replayOf(nmEvent)), collector.Options{}, "", ViewLog)
 	}()
 	p.WaitFor(t, 0, enterScreen)
 	if termios(t, p.Slave) == before {
@@ -208,7 +208,7 @@ func TestRunReturnsABackendError(t *testing.T) {
 	p := ptytest.New(t, 100, 12)
 	runner := &collectortest.FakeRunner{Err: collector.ErrBackendUnavailable}
 
-	err := Run(context.Background(), p.Slave, p.Slave, collector.New(runner), collector.Options{}, "")
+	err := Run(context.Background(), p.Slave, p.Slave, collector.New(runner), collector.Options{}, "", ViewLog)
 	if !errors.Is(err, collector.ErrBackendUnavailable) {
 		t.Fatalf("Run error = %v, want ErrBackendUnavailable", err)
 	}
@@ -217,7 +217,7 @@ func TestRunReturnsABackendError(t *testing.T) {
 
 func TestRunOnANonTerminalFails(t *testing.T) {
 	plain := regularFile(t)
-	err := Run(context.Background(), plain, plain, collector.New(replayOf(nmEvent)), collector.Options{}, "")
+	err := Run(context.Background(), plain, plain, collector.New(replayOf(nmEvent)), collector.Options{}, "", ViewLog)
 	if err == nil {
 		t.Error("Run on a regular file should fail")
 	}
