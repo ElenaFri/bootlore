@@ -18,6 +18,7 @@ DESTDIR ?=
 BINDIR  ?= $(PREFIX)/bin
 MANDIR  ?= $(PREFIX)/share/man/man1
 UNITDIR ?= $(PREFIX)/lib/systemd/system
+SYSUSERSDIR ?= $(PREFIX)/lib/sysusers.d
 
 # Use `make V=1 ...` to see the underlying commands.
 ifeq ($(V),1)
@@ -88,15 +89,23 @@ install: ## Install binary, man page and systemd unit (build first: make build &
 	$(Q)install -Dm755 $(BIN) $(DESTDIR)$(BINDIR)/bootlore
 	$(Q)install -Dm644 man/bootlore.1 $(DESTDIR)$(MANDIR)/bootlore.1
 	$(Q)install -Dm644 systemd/bootlore.service $(DESTDIR)$(UNITDIR)/bootlore.service
+	$(Q)install -Dm644 systemd/bootlore.sysusers.conf $(DESTDIR)$(SYSUSERSDIR)/bootlore.conf
+	$(Q)if [ -z "$(DESTDIR)" ] && command -v systemd-sysusers >/dev/null 2>&1; then \
+		systemd-sysusers $(SYSUSERSDIR)/bootlore.conf && echo "Created the 'bootlore' system account"; \
+	else \
+		echo "Staged install: run 'systemd-sysusers' on the target to create the 'bootlore' account"; \
+	fi
 	$(Q)echo "Installed bootlore to $(DESTDIR)$(BINDIR)/bootlore"
-	$(Q)echo "The optional service is installed but not enabled. See the README to"
-	$(Q)echo "create the 'bootlore' account, then: systemctl enable bootlore.service"
+	$(Q)echo "The optional service is installed but not enabled. Enable it with:"
+	$(Q)echo "  systemctl enable --now bootlore.service"
 
 uninstall: ## Remove the installed binary, man page and systemd unit (run as root)
 	$(Q)rm -f $(DESTDIR)$(BINDIR)/bootlore
 	$(Q)rm -f $(DESTDIR)$(MANDIR)/bootlore.1
 	$(Q)rm -f $(DESTDIR)$(UNITDIR)/bootlore.service
-	$(Q)echo "Removed bootlore. If you enabled the service, disable it first with"
-	$(Q)echo "systemctl disable --now bootlore.service, and remove the account if unused."
+	$(Q)rm -f $(DESTDIR)$(SYSUSERSDIR)/bootlore.conf
+	$(Q)echo "Removed bootlore files. If you enabled the service, disable it first with"
+	$(Q)echo "systemctl disable --now bootlore.service. The 'bootlore' account is left in"
+	$(Q)echo "place (removing accounts is intentionally manual): userdel bootlore to remove it."
 
 ci: lint test-all ## Everything the CI pipeline runs

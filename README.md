@@ -58,10 +58,12 @@ back in), or pipe the system journal once with
 ## Installation
 
 `make install` places the binary in `/usr/bin`, the man page under
-`share/man/man1` and the optional systemd unit under `/usr/lib/systemd/system`.
-It is `DESTDIR`/`PREFIX` aware for packaging, and installs — but never enables
-— the service. Build as your normal user, then install as root (installing does
-not rebuild, so it needs no Go toolchain on root's `PATH`):
+`share/man/man1`, the optional systemd unit under `/usr/lib/systemd/system` and
+a `sysusers.d` snippet under `/usr/lib/sysusers.d`. It is `DESTDIR`/`PREFIX`
+aware for packaging, creates the dedicated `bootlore` account automatically
+(via `systemd-sysusers`), and installs — but never enables — the service. Build
+as your normal user, then install as root (installing does not rebuild, so it
+needs no Go toolchain on root's `PATH`):
 
 ```sh
 make build
@@ -89,12 +91,13 @@ requested terminal is occupied or unavailable.
 
 The optional unit starts the TUI on `tty9` at boot, under a dedicated
 unprivileged account, without ever delaying the boot (it is ordered after
-`systemd-journald`, requires nothing, opt-in only). After `make install`, enable
-it as root:
+`systemd-journald`, requires nothing, opt-in only). The `bootlore` account is
+created for you by `make install` (declared in `systemd/bootlore.sysusers.conf`
+and materialised by `systemd-sysusers`; it is also re-ensured at every boot), so
+you only have to enable the service, as root:
 
 ```sh
-useradd --system --home-dir /var/lib/bootlore --create-home --shell /usr/sbin/nologin bootlore
-systemctl enable bootlore.service
+systemctl enable --now bootlore.service
 ```
 
 The account gets read-only journal access through the standard `systemd-journal`
