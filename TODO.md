@@ -51,7 +51,7 @@
 - [ ] Test under virtual machines and real hardware
 - [ ] Test restricted permissions and failure scenarios
 - [ ] Document architecture and design decisions
-- [ ] Write installation and removal instructions
+- [x] Write installation and removal instructions (`make install`/`make uninstall`, DESTDIR/PREFIX aware; README incl. SELinux note; guarded by test/docs)
 - [ ] Package for initial distribution
 
 ---

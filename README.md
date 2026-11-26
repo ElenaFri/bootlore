@@ -5,8 +5,6 @@
 
 A Linux boot observer that turns system startup logs into a readable, real-time timeline
 
-> Early development
-
 ## Rationale
 
 Linux already provides powerful tools to inspect the boot process. `journalctl`, `dmesg` and `systemd-analyze` expose a wealth of information, but each presents a different piece of the puzzle: raw logs, kernel messages, service states or timing data.
@@ -57,6 +55,31 @@ says so. Join the group with `sudo usermod -aG systemd-journal $USER` (then log
 back in), or pipe the system journal once with
 `sudo journalctl -b -o json | bootlore timing`.
 
+## Installation
+
+`make install` places the binary in `/usr/bin`, the man page under
+`share/man/man1` and the optional systemd unit under `/usr/lib/systemd/system`.
+It is `DESTDIR`/`PREFIX` aware for packaging, and installs — but never enables
+— the service. Build as your normal user, then install as root (installing does
+not rebuild, so it needs no Go toolchain on root's `PATH`):
+
+```sh
+make build
+sudo make install
+```
+
+Remove everything it added with:
+
+```sh
+sudo make uninstall
+```
+
+> **SELinux note.** On systems with SELinux in enforcing mode (e.g. openSUSE
+> or Fedora targeted policy), a system service cannot execute a binary left in
+> a home directory (it is labelled `user_home_t`, not `bin_t`). Always run the
+> *installed* `/usr/bin/bootlore`, never `./bin/bootlore` from your build tree,
+> when starting the service — `make install` labels it correctly.
+
 ### Optional systemd service
 
 `bootlore tui --vt N` implements the *service mode*: the terminal is assigned
@@ -64,15 +87,14 @@ by systemd (`TTYPath`) and verified by BootLore — it never seizes a terminal,
 never touches the console you are looking at, and exits gracefully when the
 requested terminal is occupied or unavailable.
 
-The optional unit `systemd/bootlore.service` starts the TUI on `tty9` at boot,
-under a dedicated unprivileged account, without ever delaying the boot (it is
-ordered after `systemd-journald`, requires nothing, opt-in via `systemctl
-enable`). Installation as root:
+The optional unit starts the TUI on `tty9` at boot, under a dedicated
+unprivileged account, without ever delaying the boot (it is ordered after
+`systemd-journald`, requires nothing, opt-in only). After `make install`, enable
+it as root:
 
 ```sh
 useradd --system --home-dir /var/lib/bootlore --create-home --shell /usr/sbin/nologin bootlore
-make build && install -Dm755 bin/bootlore /usr/bin/bootlore && install -Dm644 systemd/bootlore.service /etc/systemd/system/bootlore.service
-systemctl daemon-reload && systemctl enable bootlore.service
+systemctl enable bootlore.service
 ```
 
 The account gets read-only journal access through the standard `systemd-journal`

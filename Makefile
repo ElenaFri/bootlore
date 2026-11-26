@@ -9,6 +9,16 @@ GO      ?= go
 BIN     := bin/bootlore
 PKG     := ./...
 
+# Install layout. PREFIX defaults to /usr so the binary lands in /usr/bin,
+# exactly where the shipped systemd unit's ExecStart points; override any of
+# these (and, if you move the binary, the unit's ExecStart) as needed.
+# DESTDIR supports staged installs for packaging.
+PREFIX  ?= /usr
+DESTDIR ?=
+BINDIR  ?= $(PREFIX)/bin
+MANDIR  ?= $(PREFIX)/share/man/man1
+UNITDIR ?= $(PREFIX)/lib/systemd/system
+
 # Use `make V=1 ...` to see the underlying commands.
 ifeq ($(V),1)
 Q :=
@@ -19,7 +29,8 @@ endif
 .DEFAULT_GOAL := help
 
 .PHONY: help build run fmt fmt-check vet lint tidy man \
-        test test-unit test-integration test-system test-all cover clean ci
+        test test-unit test-integration test-system test-all cover clean ci \
+        install uninstall
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -71,5 +82,21 @@ cover: ## Unit+integration coverage profile (coverage.out) + total summary
 
 clean: ## Remove build and coverage artifacts
 	$(Q)rm -rf bin coverage.out
+
+install: ## Install binary, man page and systemd unit (build first: make build && sudo make install)
+	$(Q)test -x $(BIN) || { echo "Build first as your normal user:  make build"; echo "then install as root:            sudo make install"; exit 1; }
+	$(Q)install -Dm755 $(BIN) $(DESTDIR)$(BINDIR)/bootlore
+	$(Q)install -Dm644 man/bootlore.1 $(DESTDIR)$(MANDIR)/bootlore.1
+	$(Q)install -Dm644 systemd/bootlore.service $(DESTDIR)$(UNITDIR)/bootlore.service
+	$(Q)echo "Installed bootlore to $(DESTDIR)$(BINDIR)/bootlore"
+	$(Q)echo "The optional service is installed but not enabled. See the README to"
+	$(Q)echo "create the 'bootlore' account, then: systemctl enable bootlore.service"
+
+uninstall: ## Remove the installed binary, man page and systemd unit (run as root)
+	$(Q)rm -f $(DESTDIR)$(BINDIR)/bootlore
+	$(Q)rm -f $(DESTDIR)$(MANDIR)/bootlore.1
+	$(Q)rm -f $(DESTDIR)$(UNITDIR)/bootlore.service
+	$(Q)echo "Removed bootlore. If you enabled the service, disable it first with"
+	$(Q)echo "systemctl disable --now bootlore.service, and remove the account if unused."
 
 ci: lint test-all ## Everything the CI pipeline runs
